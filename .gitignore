@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# IDE / Editor configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Vite / Vitest cache & test results
+.vite/
+.vitest/
+results.json
+
+# Build outputs (only ignore if not explicitly checked in)
+# We keep packages/*/dist checked in for now as they are tracked in VC.
+# If you want to untrack them in the future, uncomment the line below:
+# dist/
+
+# Logs & Diagnostics
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Local Antigravity CLI workspace data
+.antigravitycli/

@@ -1,0 +1,25 @@
+{
+  "name": "spatial-libs-monorepo",
+  "private": true,
+  "description": "Monorepo for spatial WFS and OGC API Feature TypeScript libraries",
+  "author": "Spatial API Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Exsilium122/spatial-libs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Exsilium122/spatial-libs/issues"
+  },
+  "homepage": "https://github.com/Exsilium122/spatial-libs#readme",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm test --workspaces"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}
