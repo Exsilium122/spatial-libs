@@ -19,7 +19,7 @@ results.json
 # Build outputs (only ignore if not explicitly checked in)
 # We keep packages/*/dist checked in for now as they are tracked in VC.
 # If you want to untrack them in the future, uncomment the line below:
-# dist/
+dist/
 
 # Logs & Diagnostics
 npm-debug.log*

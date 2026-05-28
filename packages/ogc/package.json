@@ -26,11 +26,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "files": [
+    "dist"
+  ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "build": "tsc && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js",
+    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js",
     "test": "vitest run"
   },
   "peerDependencies": {
