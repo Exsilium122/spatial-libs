@@ -13,6 +13,9 @@ This is the main monorepo containing our core library packages:
 - **[@spatial-api/crs-transformer](packages/crs)** (Dynamic CRS transformations and administrative synonym registry using Proj4)
   - [![npm version](https://img.shields.io/npm/v/@spatial-api/crs-transformer.svg)](https://www.npmjs.com/package/@spatial-api/crs-transformer)
   - Published NPM Package: [`@spatial-api/crs-transformer`](https://www.npmjs.com/package/@spatial-api/crs-transformer)
+- **[@spatial-api/tester](packages/tester)** (Dynamic, zero-installation test and stress-benchmarking suite for WFS and OGC Features)
+  - [![npm version](https://img.shields.io/npm/v/@spatial-api/tester.svg)](https://www.npmjs.com/package/@spatial-api/tester)
+  - Published NPM Package: [`@spatial-api/tester`](https://www.npmjs.com/package/@spatial-api/tester)
 
 ---
 
@@ -322,9 +325,20 @@ export const postgisTreesProvider: SpatialDataProvider = {
 };
 ```
 
+## 4. Integration Verification & Load Benchmarking
+
+For production readiness, this monorepo includes **[@spatial-api/tester](packages/tester)**, an automated spatial test and benchmarking CLI suite that verifies endpoint standards and executes high-concurrency stress benchmarks.
+
+### Zero-Installation Execution:
+```bash
+npx @spatial-api/tester http://localhost:3000 --user="admin" --pass="secret"
+```
+
+For detailed options, interactive arrow/checkbox menus, and script automation configurations (e.g., `--collections` or `--mode=stress`), refer to the [Tester README](packages/tester/README.md).
+
 ---
 
-## 4. GIS Client Integration (QGIS)
+## 5. GIS Client Integration (QGIS)
 
 Once your Express server is running locally:
 

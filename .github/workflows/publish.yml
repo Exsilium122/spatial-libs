@@ -36,7 +36,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./packages/crs/package.json').version")
           if ! npm view @spatial-api/crs-transformer@$VERSION version &>/dev/null; then
-            npm publish --workspace=packages/crs --access public --provenance
+            cd packages/crs && npm publish --access public --provenance
           else
             echo "@spatial-api/crs-transformer@$VERSION is already published, skipping."
           fi
@@ -45,7 +45,7 @@ jobs:
         run: |
           VERSION=$(node -p "require('./packages/wfs/package.json').version")
           if ! npm view @spatial-api/wfs@$VERSION version &>/dev/null; then
-            npm publish --workspace=packages/wfs --access public --provenance
+            cd packages/wfs && npm publish --access public --provenance
           else
             echo "@spatial-api/wfs@$VERSION is already published, skipping."
           fi
@@ -54,7 +54,16 @@ jobs:
         run: |
           VERSION=$(node -p "require('./packages/ogc/package.json').version")
           if ! npm view @spatial-api/ogc@$VERSION version &>/dev/null; then
-            npm publish --workspace=packages/ogc --access public --provenance
+            cd packages/ogc && npm publish --access public --provenance
           else
             echo "@spatial-api/ogc@$VERSION is already published, skipping."
+          fi
+
+      - name: Publish @spatial-api/tester (if version is new)
+        run: |
+          VERSION=$(node -p "require('./packages/tester/package.json').version")
+          if ! npm view @spatial-api/tester@$VERSION version &>/dev/null; then
+            cd packages/tester && npm publish --access public --provenance
+          else
+            echo "@spatial-api/tester@$VERSION is already published, skipping."
           fi

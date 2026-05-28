@@ -165,3 +165,5 @@ const response = await handleWfs110(genericRequest, wfsOptions);
 - **NPM Package**: [https://www.npmjs.com/package/@spatial-api/wfs](https://www.npmjs.com/package/@spatial-api/wfs)
 - **Monorepo GitHub**: [https://github.com/Exsilium122/spatial-libs](https://github.com/Exsilium122/spatial-libs)
 - **Sibling OGC Package**: [https://www.npmjs.com/package/@spatial-api/ogc](https://www.npmjs.com/package/@spatial-api/ogc)
+- **CRS Transformer Package**: [https://www.npmjs.com/package/@spatial-api/crs-transformer](https://www.npmjs.com/package/@spatial-api/crs-transformer)
+- **Spatial Tester CLI Package**: [https://www.npmjs.com/package/@spatial-api/tester](https://www.npmjs.com/package/@spatial-api/tester)

@@ -142,4 +142,5 @@ export interface CoordinateTransformer {
 ## 🔗 Links
 *   **WFS Core Package**: [@spatial-api/wfs](https://www.npmjs.com/package/@spatial-api/wfs)
 *   **OGC Core Package**: [@spatial-api/ogc](https://www.npmjs.com/package/@spatial-api/ogc)
+*   **Spatial Probing & Benchmarking CLI Suite**: [@spatial-api/tester](https://www.npmjs.com/package/@spatial-api/tester)
 *   **Monorepo GitHub**: [https://github.com/Exsilium122/spatial-libs](https://github.com/Exsilium122/spatial-libs)

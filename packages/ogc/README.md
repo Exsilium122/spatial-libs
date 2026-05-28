@@ -150,3 +150,5 @@ When calling `createOgcRouter(options)`, you can customize behavior using the fo
 - **NPM Package**: [https://www.npmjs.com/package/@spatial-api/ogc](https://www.npmjs.com/package/@spatial-api/ogc)
 - **Monorepo GitHub**: [https://github.com/Exsilium122/spatial-libs](https://github.com/Exsilium122/spatial-libs)
 - **Sibling WFS Package**: [https://www.npmjs.com/package/@spatial-api/wfs](https://www.npmjs.com/package/@spatial-api/wfs)
+- **CRS Transformer Package**: [https://www.npmjs.com/package/@spatial-api/crs-transformer](https://www.npmjs.com/package/@spatial-api/crs-transformer)
+- **Spatial Tester CLI Package**: [https://www.npmjs.com/package/@spatial-api/tester](https://www.npmjs.com/package/@spatial-api/tester)
