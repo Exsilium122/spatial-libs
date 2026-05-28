@@ -191,8 +191,7 @@ export async function handleWfs200(
         };
       });
 
-      const featureTypes = await Promise.all(promises);
-      xmlData['wfs:WFS_Capabilities']['wfs:FeatureTypeList']['wfs:FeatureType'] = featureTypes;
+      xmlData['wfs:WFS_Capabilities']['wfs:FeatureTypeList']['wfs:FeatureType'] = await Promise.all(promises);
 
       const xml = create(xmlData).end({ prettyPrint: true });
       return {

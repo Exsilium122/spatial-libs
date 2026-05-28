@@ -1,0 +1,46 @@
+name: Publish to NPM
+
+on:
+  release:
+    types: [published] # Triggers strictly when you publish a GitHub Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # Required to generate the OIDC token for trusted publishing
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Publish @spatial-api/wfs (if version is new)
+        run: |
+          VERSION=$(node -p "require('./packages/wfs/package.json').version")
+          if ! npm view @spatial-api/wfs@$VERSION version &>/dev/null; then
+            npm publish --workspace=packages/wfs --access public
+          else
+            echo "@spatial-api/wfs@$VERSION is already published, skipping."
+          fi
+
+      - name: Publish @spatial-api/ogc (if version is new)
+        run: |
+          VERSION=$(node -p "require('./packages/ogc/package.json').version")
+          if ! npm view @spatial-api/ogc@$VERSION version &>/dev/null; then
+            npm publish --workspace=packages/ogc --access public
+          else
+            echo "@spatial-api/ogc@$VERSION is already published, skipping."
+          fi

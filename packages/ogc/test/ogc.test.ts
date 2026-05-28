@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import createOgcRouter, { verifyProvider } from '../src/index.js';
-import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src/types.js';
-import express from 'express';
+import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src';
 // We don't need a real server to test core dispatch, but we can verify verifyProvider
 // and basic responses since it is standard JS logic.
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import createWfsRouter, { verifyProvider, dispatchWfsRequest } from '../src/index.js';
-import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src/types.js';
+import { verifyProvider, dispatchWfsRequest } from '../src';
+import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src';
 
 // Generic Hello World trees spatial data provider
 class MockTreesProvider implements SpatialDataProvider {

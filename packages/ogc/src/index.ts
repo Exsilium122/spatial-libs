@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { OgcOptions, GenericRequest, GenericResponse, SpatialDataProvider, OgcCollectionMetadata } from './types.js';
+import { OgcOptions, SpatialDataProvider, OgcCollectionMetadata } from './types.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -134,7 +134,7 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       const activeBase = getRequestBaseUrl(req);
       const validTypes = await provider.getSupportedTypes(req.user);
 
-      let collections: OgcCollectionMetadata[] = [];
+      let collections: OgcCollectionMetadata[];
 
       if (typeof provider.getCollectionsMetadata === 'function') {
         collections = await provider.getCollectionsMetadata(req.user);
