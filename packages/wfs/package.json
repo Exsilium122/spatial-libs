@@ -1,6 +1,6 @@
 {
   "name": "@spatial-api/wfs",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Express middleware and protocol handlers for WFS (Web Feature Service)",
   "keywords": [
     "wfs",
@@ -30,11 +30,19 @@
   "files": [
     "dist"
   ],
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
-    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js",
+    "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js && esbuild src/index.ts --bundle --minify --platform=node --format=cjs --packages=external --outfile=dist/index.cjs && node -e \"fs.copyFileSync('dist/index.d.ts', 'dist/index.d.cts')\"",
     "test": "vitest run"
   },
   "dependencies": {
