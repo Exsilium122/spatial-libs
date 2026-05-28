@@ -1,4 +1,4 @@
-import { create } from 'xmlbuilder2';
+import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys } from './filterParser.js';
@@ -193,7 +193,7 @@ export async function handleWfs200(
 
       xmlData['wfs:WFS_Capabilities']['wfs:FeatureTypeList']['wfs:FeatureType'] = await Promise.all(promises);
 
-      const xml = create(xmlData).end({ prettyPrint: true });
+      const xml = buildXml(xmlData);
       return {
         status: 200,
         headers: { 'Content-Type': 'text/xml' },
@@ -285,7 +285,7 @@ export async function handleWfs200(
           },
         };
 
-        const xml = create(xmlData).end({ prettyPrint: true });
+        const xml = buildXml(xmlData);
         return {
           status: 200,
           headers: { 'Content-Type': 'text/xml' },
@@ -297,7 +297,7 @@ export async function handleWfs200(
     }
 
     if (requestType === 'getfeature' || postAction === 'getfeature') {
-      let featureType = '';
+      let featureType ;
       let fids: string[] = [];
       let filterQuery: Record<string, any> = {};
 
@@ -313,7 +313,7 @@ export async function handleWfs200(
           const coords = parts.slice(0, 4).map(Number);
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
             let minLon, minLat, maxLon, maxLat;
-            let isLatFirst = false;
+            let isLatFirst ;
             if (Math.abs(coords[1]) > 90 || Math.abs(coords[3]) > 90) {
               isLatFirst = true;
             } else if (Math.abs(coords[0]) > 90 || Math.abs(coords[2]) > 90) {
@@ -443,7 +443,7 @@ export async function handleWfs200(
           }
         });
 
-        const xml = create(xmlData).end({ prettyPrint: true });
+        const xml = buildXml(xmlData);
         return {
           status: 200,
           headers: { 'Content-Type': 'text/xml' },

@@ -1,4 +1,4 @@
-import { create } from 'xmlbuilder2';
+import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys } from './filterParser.js';
@@ -128,7 +128,7 @@ export async function handleWfs100(
 
       xmlData.WFS_Capabilities.FeatureTypeList.FeatureType = await Promise.all(promises);
 
-      const xml = create(xmlData).end({ prettyPrint: true });
+      const xml = buildXml(xmlData);
       return {
         status: 200,
         headers: { 'Content-Type': 'text/xml' },
@@ -224,7 +224,7 @@ export async function handleWfs100(
           },
         };
 
-        const xml = create(xmlData).end({ prettyPrint: true });
+        const xml = buildXml(xmlData);
         return {
           status: 200,
           headers: { 'Content-Type': 'text/xml' },
@@ -382,7 +382,7 @@ export async function handleWfs100(
           }
         });
 
-        const xml = create(xmlData).end({ prettyPrint: true });
+        const xml = buildXml(xmlData);
         return {
           status: 200,
           headers: { 'Content-Type': 'text/xml' },

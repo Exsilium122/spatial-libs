@@ -1,4 +1,4 @@
-import { create } from 'xmlbuilder2';
+import { buildXml } from './xmlHelper.js';
 import { GenericResponse } from './types.js';
 
 export function buildExceptionXml(code: string | number, locator: string, msg: string, version: string = '1.1.0'): string {
@@ -17,7 +17,7 @@ export function buildExceptionXml(code: string | number, locator: string, msg: s
         }
       }
     };
-    return create(xmlData).end({ prettyPrint: true });
+    return buildXml(xmlData);
   } else {
     // 1.0.0 or 1.1.0 standard
     const xmlData = {
@@ -33,7 +33,7 @@ export function buildExceptionXml(code: string | number, locator: string, msg: s
         },
       },
     };
-    return create(xmlData).end({ prettyPrint: true });
+    return buildXml(xmlData);
   }
 }
 

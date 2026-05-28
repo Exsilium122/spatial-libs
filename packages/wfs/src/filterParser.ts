@@ -1,4 +1,4 @@
-import xml2js from 'xml2js';
+import { parseXml } from './xmlHelper.js';
 
 /**
  * Unwraps arrays recursively to support both explicitArray: true and simple object outputs.
@@ -18,6 +18,7 @@ export function normalizeKeys(obj: any): any {
   if (Array.isArray(obj)) return obj.map(normalizeKeys);
   const res: Record<string, any> = {};
   for (const key of Object.keys(obj)) {
+    if (key.startsWith('@') || key === '$') continue;
     const cleanKey = key.includes(':') ? key.split(':')[1] : key;
     res[cleanKey] = normalizeKeys(obj[key]);
   }
@@ -27,20 +28,14 @@ export function normalizeKeys(obj: any): any {
 /**
  * Parses an OGC Filter XML string into a normalized JavaScript object structure.
  */
-export function parseFilterString(xmlString: string): Promise<any> {
-  return new Promise((resolve) => {
-    xml2js.parseString(
-      xmlString,
-      {
-        explicitArray: false,
-        tagNameProcessors: [xml2js.processors.stripPrefix],
-      },
-      (err, result) => {
-        if (err) resolve(null);
-        else resolve(result?.Filter || null);
-      }
-    );
-  });
+export async function parseFilterString(xmlString: string): Promise<any> {
+  try {
+    const obj = parseXml(xmlString);
+    const normalized = normalizeKeys(obj);
+    return normalized?.Filter || null;
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
