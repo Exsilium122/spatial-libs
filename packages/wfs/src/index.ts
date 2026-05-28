@@ -12,18 +12,39 @@ export { handleWfs100 } from './v1_0_0.js';
 export { handleWfs110 } from './v1_1_0.js';
 export { handleWfs200 } from './v2_0_0.js';
 
+function verifyInterface(obj: any, requiredMethods: readonly string[], errorContext: string): void {
+  for (const m of requiredMethods) {
+    if (!obj || typeof obj[m] !== 'function') {
+      throw new Error(`${errorContext} is missing the required method "${m}".`);
+    }
+  }
+}
+
 /**
  * Boot-time verification helper to check if the data provider implements necessary methods.
  */
 function verifyProvider(provider: SpatialDataProvider): void {
-  const requiredMethods = ['getSupportedTypes', 'getBoundingBox', 'getFeatures'] as const;
-  for (const m of requiredMethods) {
-    if (typeof provider[m] !== 'function') {
-      throw new Error(
-        `[Spatial-API WFS Verification Error]: The provided SpatialDataProvider is missing the required method "${m}".`
-      );
-    }
-  }
+  verifyInterface(
+    provider,
+    ['getSupportedTypes', 'getBoundingBox', 'getFeatures'],
+    '[Spatial-API WFS Verification Error]: The provided SpatialDataProvider'
+  );
+}
+
+function verifyTransformer(transformer: any): void {
+  verifyInterface(
+    transformer,
+    ['normalizeSrs', 'isSupported', 'getSupportedCodes', 'transformCoordinate', 'transformGeometry'],
+    '[Spatial-API WFS Verification Error]: The provided CoordinateTransformer'
+  );
+}
+
+function verifyLogger(logger: any): void {
+  verifyInterface(
+    logger,
+    ['info', 'warn', 'error'],
+    '[Spatial-API WFS Verification Error]: The provided Logger'
+  );
 }
 
 /**
@@ -99,6 +120,18 @@ export async function dispatchWfsRequest(
 export default function createWfsRouter(options: WfsOptions): express.Router {
   // 1. Boot-time check
   verifyProvider(options.provider);
+  if (options.crsTransformer) {
+    verifyTransformer(options.crsTransformer);
+  }
+  if (options.logger) {
+    verifyLogger(options.logger);
+  }
+
+  if (options.crsTransformer) {
+    options.logger?.info(`[Spatial WFS] CRS Reprojection enabled. Injected systems: ${options.crsTransformer.getSupportedCodes().join(', ')}`);
+  } else {
+    options.logger?.info('[Spatial WFS] Operating in native WGS84 mode (No CRS transformer injected).');
+  }
 
   const router = express.Router();
 

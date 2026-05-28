@@ -32,6 +32,15 @@ jobs:
       - name: Build packages
         run: npm run build
 
+      - name: Publish @spatial-api/crs-transformer (if version is new)
+        run: |
+          VERSION=$(node -p "require('./packages/crs/package.json').version")
+          if ! npm view @spatial-api/crs-transformer@$VERSION version &>/dev/null; then
+            npm publish --workspace=packages/crs --access public --provenance
+          else
+            echo "@spatial-api/crs-transformer@$VERSION is already published, skipping."
+          fi
+
       - name: Publish @spatial-api/wfs (if version is new)
         run: |
           VERSION=$(node -p "require('./packages/wfs/package.json').version")

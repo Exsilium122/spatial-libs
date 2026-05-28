@@ -39,10 +39,19 @@ export interface SpatialDataProvider {
   ): Promise<Record<string, 'string' | 'integer' | 'double' | 'boolean'>>;
 }
 
+export interface CoordinateTransformer {
+  normalizeSrs(srsName: string): string;
+  isSupported(srsName: string): boolean;
+  getSupportedCodes(): string[];
+  transformCoordinate(coords: [number, number], fromSrs: string, toSrs: string): [number, number];
+  transformGeometry(geometry: GeoJSONGeometry, fromSrs: string, toSrs: string): GeoJSONGeometry;
+}
+
 export interface WfsOptions {
   provider: SpatialDataProvider;
   logger?: Logger;
   baseUrl: string;
+  crsTransformer?: CoordinateTransformer; // Dynamic injection
   appUrl?: string; // Kept as optional fallback/backward compatibility if needed, but not enforced
   enabledVersions?: ('1.0.0' | '1.1.0' | '2.0.0' | '2.0.2')[];
   xmlOptions?: {

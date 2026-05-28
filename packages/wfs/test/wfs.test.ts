@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import createWfsRouter, { dispatchWfsRequest } from '../src/index.js';
 import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src/types.js';
+import CrsTransformer from '../../crs/src/index.js';
 
 // Generic Hello World trees spatial data provider
 class MockTreesProvider implements SpatialDataProvider {
@@ -88,7 +89,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
     }).not.toThrow();
   });
 
-  it('fails verification if a required method is missing', () => {
+  it('fails verification if a required provider method is missing', () => {
     const invalidProvider = {
       getSupportedTypes: async () => []
     };
@@ -98,6 +99,30 @@ describe('WFS Library - @spatial-api/wfs', () => {
         provider: invalidProvider as any
       });
     }).toThrow('[Spatial-API WFS Verification Error]');
+  });
+
+  it('fails verification if a required crsTransformer method is missing', () => {
+    const invalidTransformer = {
+      normalizeSrs: () => 'EPSG:4326'
+    };
+    expect(() => {
+      createWfsRouter({
+        ...options,
+        crsTransformer: invalidTransformer as any
+      });
+    }).toThrow('[Spatial-API WFS Verification Error]: The provided CoordinateTransformer is missing the required method "isSupported".');
+  });
+
+  it('fails verification if a required logger method is missing', () => {
+    const invalidLogger = {
+      info: () => {}
+    };
+    expect(() => {
+      createWfsRouter({
+        ...options,
+        logger: invalidLogger as any
+      });
+    }).toThrow('[Spatial-API WFS Verification Error]: The provided Logger is missing the required method "warn".');
   });
 
   it('handles GetCapabilities WFS 1.0.0 request', async () => {
@@ -147,5 +172,78 @@ describe('WFS Library - @spatial-api/wfs', () => {
     expect(res.headers['Content-Type']).toBe('text/xml');
     expect(res.body).toContain('<element name="trees"');
     expect(res.body).toContain('type="trees-ns:trees_Type"');
+  });
+
+  describe('WFS CRS Integration Tests', () => {
+    const optionsWithCrs = {
+      ...options,
+      crsTransformer: CrsTransformer
+    };
+
+    it('advertises other supported SRS codes in GetCapabilities WFS 1.1.0', async () => {
+      const req = {
+        method: 'GET' as const,
+        query: {
+          request: 'GetCapabilities',
+          version: '1.1.0'
+        }
+      };
+      const res = await dispatchWfsRequest(req, optionsWithCrs);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('DefaultSRS');
+      expect(res.body).toContain('EPSG:4326');
+      expect(res.body).toContain('OtherSRS');
+      expect(res.body).toContain('EPSG:3006');
+    });
+
+    it('advertises other supported SRS codes in GetCapabilities WFS 2.0.0 as URNs', async () => {
+      const req = {
+        method: 'GET' as const,
+        query: {
+          request: 'GetCapabilities',
+          version: '2.0.0'
+        }
+      };
+      const res = await dispatchWfsRequest(req, optionsWithCrs);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('urn:ogc:def:crs:EPSG::4326');
+      expect(res.body).toContain('urn:ogc:def:crs:EPSG::3006');
+      expect(res.body).toContain('urn:ogc:def:crs:EPSG::3857');
+    });
+
+    it('reprojects coordinates dynamically in WFS 1.1.0 GetFeature with srsname parameter', async () => {
+      const req = {
+        method: 'GET' as const,
+        query: {
+          request: 'GetFeature',
+          version: '1.1.0',
+          typename: 'trees-ns:trees',
+          srsname: 'EPSG:3006'
+        }
+      };
+      const res = await dispatchWfsRequest(req, optionsWithCrs);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('srsName="EPSG:3006"');
+      // [10.5, 50.5] -> SWEREF99 TM coordinates: [180918, 5603903] (rounded)
+      expect(res.body).toContain('180917');
+      expect(res.body).toContain('5603903');
+    });
+
+    it('reprojects coordinates dynamically in WFS 2.0.0 GetFeature with srsName URN format', async () => {
+      const req = {
+        method: 'GET' as const,
+        query: {
+          request: 'GetFeature',
+          version: '2.0.0',
+          typename: 'trees-ns:trees',
+          srsName: 'urn:ogc:def:crs:EPSG::3006'
+        }
+      };
+      const res = await dispatchWfsRequest(req, optionsWithCrs);
+      expect(res.status).toBe(200);
+      expect(res.body).toContain('srsName="urn:ogc:def:crs:EPSG::3006"');
+      expect(res.body).toContain('180917');
+      expect(res.body).toContain('5603903');
+    });
   });
 });

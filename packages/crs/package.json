@@ -1,29 +1,23 @@
 {
-  "name": "@spatial-api/ogc",
+  "name": "@spatial-api/crs-transformer",
   "version": "1.1.2",
-  "description": "Modular and lightweight OGC API Features (WFS 3.0) protocol engine with optional out-of-the-box Express integration",
+  "description": "Coordinate reference system normalization and projection converter using Proj4",
   "keywords": [
-    "ogc",
-    "ogc-api-features",
-    "wfs3",
-    "geojson",
+    "crs",
+    "srs",
+    "projection",
+    "reprojection",
+    "proj4",
     "gis",
-    "spatial",
-    "express",
-    "middleware",
-    "typescript"
+    "spatial"
   ],
   "author": "Spatial API Team",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Exsilium122/spatial-libs.git",
-    "directory": "packages/ogc"
+    "directory": "packages/crs"
   },
-  "bugs": {
-    "url": "https://github.com/Exsilium122/spatial-libs/issues"
-  },
-  "homepage": "https://github.com/Exsilium122/spatial-libs/tree/main/packages/ogc#readme",
   "publishConfig": {
     "access": "public"
   },
@@ -45,11 +39,10 @@
     "build": "tsc --emitDeclarationOnly && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js && esbuild src/index.ts --bundle --minify --platform=node --format=cjs --packages=external --outfile=dist/index.cjs && node -e \"fs.copyFileSync('dist/index.d.ts', 'dist/index.d.cts')\"",
     "test": "vitest run"
   },
-  "peerDependencies": {
-    "express": "^4.0.0"
+  "dependencies": {
+    "proj4": "^2.15.0"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "typescript": "^5.0.0",
     "vitest": "^1.0.0"
   }

@@ -179,11 +179,17 @@ export async function handleWfs200(
 
       const promises = types.map(async (type) => {
         const bbox = await provider.getBoundingBox(req.user, type);
+        const otherSrsList = options.crsTransformer
+          ? options.crsTransformer.getSupportedCodes()
+              .filter(c => c !== 'EPSG:4326')
+              .map(c => `urn:ogc:def:crs:EPSG::${c.replace('EPSG:', '')}`)
+          : [];
         return {
           Name: `${nsPrefix}:${type}`,
           Title: type,
           Abstract: `Collection of ${type} features`,
           DefaultSRS: 'urn:ogc:def:crs:EPSG::4326',
+          ...(otherSrsList.length > 0 ? { OtherSRS: otherSrsList } : {}),
           'ows:WGS84BoundingBox': {
             'ows:LowerCorner': `${bbox.minLon} ${bbox.minLat}`,
             'ows:UpperCorner': `${bbox.maxLon} ${bbox.maxLat}`,
@@ -297,12 +303,14 @@ export async function handleWfs200(
     }
 
     if (requestType === 'getfeature' || postAction === 'getfeature') {
-      let featureType ;
+      let featureType;
       let fids: string[] = [];
       let filterQuery: Record<string, any> = {};
+      let requestedSrs = '';
 
       if (req.method === 'GET') {
         featureType = query.TYPENAME || query.TYPENAMES || '';
+        requestedSrs = query.SRSNAME || '';
         if (query.FEATUREID) {
           fids = String(query.FEATUREID).split(',');
         }
@@ -313,7 +321,7 @@ export async function handleWfs200(
           const coords = parts.slice(0, 4).map(Number);
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
             let minLon, minLat, maxLon, maxLat;
-            let isLatFirst ;
+            let isLatFirst;
             if (Math.abs(coords[1]) > 90 || Math.abs(coords[3]) > 90) {
               isLatFirst = true;
             } else if (Math.abs(coords[0]) > 90 || Math.abs(coords[2]) > 90) {
@@ -365,6 +373,7 @@ export async function handleWfs200(
         const queries = getf['wfs:query'] || getf.query || [];
         const queryNode = queries[0] || {};
         featureType = queryNode.$ && queryNode.$.typeName;
+        requestedSrs = queryNode.$ && queryNode.$.srsName;
 
         const filters = queryNode['fes:filter'] || queryNode['ogc:filter'] || queryNode.filter;
         if (filters) {
@@ -380,10 +389,60 @@ export async function handleWfs200(
         }
       }
 
+      let targetSrs = 'EPSG:4326';
+      let doReproject = false;
+      if (requestedSrs && options.crsTransformer) {
+        if (options.crsTransformer.isSupported(requestedSrs)) {
+          targetSrs = options.crsTransformer.normalizeSrs(requestedSrs);
+          doReproject = true;
+        } else {
+          return buildExceptionResponse(
+            400,
+            'getFeature',
+            `Unsupported SRS requested: ${requestedSrs}`,
+            '2.0.0'
+          );
+        }
+      }
+
+      const isLatFirst = (srs: string): boolean => {
+        const norm = srs.toUpperCase();
+        return norm === 'EPSG:4326' || norm === 'EPSG:4619' || norm === 'EPSG:4269';
+      };
+
+      let responseSrsName = 'urn:ogc:def:crs:EPSG::4326';
+      if (doReproject) {
+        if (requestedSrs.toLowerCase().includes('urn:') || requestedSrs.toLowerCase().includes('http:')) {
+          responseSrsName = requestedSrs;
+        } else {
+          responseSrsName = `urn:ogc:def:crs:EPSG::${targetSrs.replace('EPSG:', '')}`;
+        }
+      }
+
       if (featureType) {
         const cleanType = featureType.replace(new RegExp(`^(${nsPrefix}|wfs):`), '');
         const bbox = await provider.getBoundingBox(req.user, cleanType);
         const features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+
+        let displayBbox = { ...bbox };
+        if (doReproject && options.crsTransformer) {
+          const minPt = options.crsTransformer.transformCoordinate([bbox.minLon, bbox.minLat], 'EPSG:4326', targetSrs);
+          const maxPt = options.crsTransformer.transformCoordinate([bbox.maxLon, bbox.maxLat], 'EPSG:4326', targetSrs);
+          displayBbox = {
+            minLon: minPt[0],
+            minLat: minPt[1],
+            maxLon: maxPt[0],
+            maxLat: maxPt[1]
+          };
+        }
+
+        const lowerCorner = isLatFirst(targetSrs)
+          ? `${displayBbox.minLat} ${displayBbox.minLon}`
+          : `${displayBbox.minLon} ${displayBbox.minLat}`;
+
+        const upperCorner = isLatFirst(targetSrs)
+          ? `${displayBbox.maxLat} ${displayBbox.maxLon}`
+          : `${displayBbox.maxLon} ${displayBbox.maxLat}`;
 
         const xmlData: Record<string, any> = {
           'wfs:FeatureCollection': {
@@ -397,9 +456,9 @@ export async function handleWfs200(
             '@version': version,
             'wfs:boundedBy': {
               'gml:Envelope': {
-                '@srsName': 'urn:ogc:def:crs:EPSG::4326',
-                'gml:lowerCorner': `${bbox.minLat} ${bbox.minLon}`,
-                'gml:upperCorner': `${bbox.maxLat} ${bbox.maxLon}`,
+                '@srsName': responseSrsName,
+                'gml:lowerCorner': lowerCorner,
+                'gml:upperCorner': upperCorner,
               },
             },
             'wfs:member': [],
@@ -407,24 +466,43 @@ export async function handleWfs200(
         };
 
         features.forEach((feature) => {
-          const coords = feature?.geometry?.coordinates;
+          let geom = feature.geometry;
+          if (doReproject && options.crsTransformer) {
+            geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
+          }
+
+          const coords = geom?.coordinates;
           if (coords) {
-            const isLineString = feature.geometry?.type === 'LineString';
-            const gmlGeo = isLineString
-              ? {
-                  'gml:LineString': {
-                    '@gml:id': `l_${feature.id.toString()}`,
-                    '@srsName': 'urn:ogc:def:crs:EPSG::4326',
-                    'gml:posList': coords.map((coor: any) => `${coor[1]} ${coor[0]}`).join(' '),
-                  },
-                }
-              : {
-                  'gml:Point': {
-                    '@gml:id': `p_${feature.id.toString()}`,
-                    '@srsName': 'urn:ogc:def:crs:EPSG::4326',
-                    'gml:pos': `${coords[1]} ${coords[0]}`,
-                  },
-                };
+            const isLineString = geom?.type === 'LineString';
+            let gmlGeo;
+
+            if (isLineString) {
+              const posListStr = coords.map((coor: any) => {
+                return isLatFirst(targetSrs)
+                  ? `${coor[1]} ${coor[0]}`
+                  : `${coor[0]} ${coor[1]}`;
+              }).join(' ');
+
+              gmlGeo = {
+                'gml:LineString': {
+                  '@gml:id': `l_${feature.id.toString()}`,
+                  '@srsName': responseSrsName,
+                  'gml:posList': posListStr,
+                },
+              };
+            } else {
+              const posStr = isLatFirst(targetSrs)
+                ? `${coords[1]} ${coords[0]}`
+                : `${coords[0]} ${coords[1]}`;
+
+              gmlGeo = {
+                'gml:Point': {
+                  '@gml:id': `p_${feature.id.toString()}`,
+                  '@srsName': responseSrsName,
+                  'gml:pos': posStr,
+                },
+              };
+            }
 
             const featureProps: Record<string, any> = {
               [`${nsPrefix}:geo`]: gmlGeo

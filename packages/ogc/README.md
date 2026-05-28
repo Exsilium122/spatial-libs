@@ -1,6 +1,6 @@
 # @spatial-api/ogc
 
-A modular, lightweight, and database-agnostic TypeScript library to publish spatial data via modern **OGC API - Features (Core & GeoJSON)** standards using **Express**.
+A modular, lightweight, and database-agnostic TypeScript library to publish spatial data via modern **OGC API - Features (Core & GeoJSON)** standards, with optional out-of-the-box compatibility for **Express**.
 
 Part of the **[@spatial-api/spatial-libs](https://github.com/Exsilium122/spatial-libs)** monorepo suite.
 
@@ -22,7 +22,34 @@ If your enterprise clients or legacy desktop GIS systems require standard XML-ba
 - **Database Agnostic**: Bring your own database (PostGIS, MongoDB, SQLite, in-memory, etc.). The library delegates spatial queries to your customized database provider class.
 - **Express Middleware**: Standard, drop-in Express router is included out-of-the-box.
 - **Dependency-Injected Logging**: Inject standard loggers like Pino, Winston, or standard `console` objects.
-- **CRS & Projection Limitations**: Conforms to **OGC API - Features Part 1: Core**, utilizing **CRS84** (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` - WGS 84 longitude, latitude) by default for all GeoJSON outputs. It does **not** implement Part 2 (Coordinate Reference Systems by Reference); the query parameters `crs` and `bbox-crs` are not supported. No automatic on-the-fly projection or coordinate conversion is supported. Developers are responsible for performing coordinate transformation in their custom `SpatialDataProvider` if data is stored in other reference systems.
+- **Part 1 Core Compliance**: Fully conforms to **OGC API - Features Part 1: Core**, serving geographic **CRS84** (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` - WGS 84 `[longitude, latitude]`) features by default.
+- **Optional Part 2 CRS Engine**: Instantly unlocks compliance with **OGC API - Features Part 2: Coordinate Reference Systems by Reference** when injected with `@spatial-api/crs-transformer`.
+
+---
+
+## 🌐 Coordinate Reference Systems (CRS) & Projections (OGC Part 2)
+
+By default, `@spatial-api/ogc` operates in standard **`CRS84`** (GeoJSON longitude/latitude). If you need to serve features in other coordinate systems (such as Swedish SWEREF 99, Polish PUWG, German Gauss-Krüger/UTM, French Lambert, or Norwegian EUREF89/NTM) using standard `crs` and `bbox-crs` parameters, you can inject the companion package **[@spatial-api/crs-transformer](https://www.npmjs.com/package/@spatial-api/crs-transformer)**:
+
+```typescript
+import express from 'express';
+import createOgcRouter from '@spatial-api/ogc';
+import CrsTransformer from '@spatial-api/crs-transformer';
+
+const app = express();
+
+app.use('/api/ogc', createOgcRouter({
+  provider: mySpatialProvider,
+  baseUrl: 'http://localhost:3000/api/ogc',
+  crsTransformer: CrsTransformer // Inject reprojections engine here!
+}));
+```
+
+Once injected, the router automatically:
+1. **Advertises** OGC Features Part 2 profile in `/conformance`.
+2. **Lists** all supported systems inside the `crs` array property of the collection metadata inside `/collections` and `/collections/:collectionId`.
+3. **Accepts** the **`crs`** query parameter during items queries (e.g. `?crs=http://www.opengis.net/def/crs/EPSG/0/3006`) to perform on-the-fly coordinate transformation of geometries.
+4. **Accepts** the **`bbox-crs`** query parameter (e.g. `?bbox=527400,6707100,527500,6707300&bbox-crs=http://www.opengis.net/def/crs/EPSG/0/3006`) to transform non-WGS84 query envelopes back to WGS84 before querying your database provider.
 
 ---
 

@@ -47,10 +47,19 @@ export interface SpatialDataProvider {
   getGeometryType?(context: any, featureType: string): Promise<'LineString' | 'Point'>;
 }
 
+export interface CoordinateTransformer {
+  normalizeSrs(srsName: string): string;
+  isSupported(srsName: string): boolean;
+  getSupportedCodes(): string[];
+  transformCoordinate(coords: [number, number], fromSrs: string, toSrs: string): [number, number];
+  transformGeometry(geometry: GeoJSONGeometry, fromSrs: string, toSrs: string): GeoJSONGeometry;
+}
+
 export interface OgcOptions {
   provider: SpatialDataProvider;
   logger?: Logger;
   baseUrl: string;
+  crsTransformer?: CoordinateTransformer; // Dynamic injection
   appUrl?: string; // Kept as optional for backward compatibility if needed, but not enforced
   defaultLimit?: number;
   maxLimit?: number;

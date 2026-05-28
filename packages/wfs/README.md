@@ -1,6 +1,6 @@
 # @spatial-api/wfs
 
-A modular, lightweight, and database-agnostic TypeScript library to publish spatial data via standard **WFS (Web Feature Service)** protocols (v1.0.0, v1.1.0, v2.0.0, and v2.0.2) using **Express**.
+A modular, lightweight, and database-agnostic TypeScript library to publish spatial data via standard **WFS (Web Feature Service)** protocols (v1.0.0, v1.1.0, v2.0.0, and v2.0.2), with optional out-of-the-box compatibility for **Express**.
 
 Part of the **[@spatial-api/spatial-libs](https://github.com/Exsilium122/spatial-libs)** monorepo suite.
 
@@ -21,7 +21,33 @@ If your developers prefer a modern, RESTful API returning GeoJSON instead of XML
 - **Database Agnostic**: Bring your own database (PostGIS, MongoDB, SQLite, in-memory, etc.). The library delegates spatial queries to your customized database provider class.
 - **Express Middleware**: Standard, drop-in Express router is included out-of-the-box.
 - **Dependency-Injected Logging**: Inject standard loggers like Pino, Winston, or standard `console` objects.
-- **CRS & Axis-Order Swapping**: Hardcoded coordinate system support for `EPSG:4326` with GML-compliant coordinate formatting (axis-swapping automatic coordinate formatting to `lat lon` for WFS v1.1.0/v2.0.0 vs `lon,lat` for WFS v1.0.0). No automatic projection conversion or on-the-fly coordinate transformation is supported out of the box; developers must perform coordinate transformations in their custom `SpatialDataProvider` if features are stored in another reference system.
+- **CRS & Axis-Order Swapping**: Standard, fully compliant axis-swapping coordinate formatting (`lat lon` for WFS v1.1.0/v2.0.0 vs `lon,lat` for WFS v1.0.0). By default, the library serves geographic `EPSG:4326` coordinates.
+- **Optional Reprojection Engine**: Integrates seamlessly with `@spatial-api/crs-transformer` to support on-the-fly coordinate transformations to Swedish SWEREF99, Polish PUWG, German Gauss-Krüger/UTM, French Lambert, and Norwegian EUREF89/NTM coordinate systems, automatically advertised under `OtherSRS` in Capabilities documents.
+
+---
+
+## 🌐 Coordinate Reference Systems (CRS) & Projections
+
+By default, `@spatial-api/wfs` operates in geographic **`EPSG:4326`**. If your database contains features in different coordinate reference systems, or you need to support multi-projection WFS requests (utilizing `srsName`/`srsname` parameters), you can inject the companion package **[@spatial-api/crs-transformer](https://www.npmjs.com/package/@spatial-api/crs-transformer)**:
+
+```typescript
+import express from 'express';
+import createWfsRouter from '@spatial-api/wfs';
+import CrsTransformer from '@spatial-api/crs-transformer';
+
+const app = express();
+
+app.use('/api/wfs', createWfsRouter({
+  provider: mySpatialProvider,
+  baseUrl: 'http://localhost:3000/api/wfs',
+  crsTransformer: CrsTransformer // Inject reprojections engine here!
+}));
+```
+
+Once injected, the router automatically:
+1. **Advertises** all supported projections inside the `<OtherSRS>` tags in WFS 1.1.0 and 2.0.0 `GetCapabilities` documents.
+2. **Transforms** feature geometries on-the-fly from WGS84 to the requested target coordinate system.
+3. **Formats** coordinate axes compliant with the target projection (preserving `Easting Northing` for projected zones and swapping to `Latitude Longitude` for geographic zones).
 
 ---
 
