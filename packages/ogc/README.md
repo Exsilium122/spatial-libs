@@ -22,6 +22,7 @@ If your enterprise clients or legacy desktop GIS systems require standard XML-ba
 - **Database Agnostic**: Bring your own database (PostGIS, MongoDB, SQLite, in-memory, etc.). The library delegates spatial queries to your customized database provider class.
 - **Express Middleware**: Standard, drop-in Express router is included out-of-the-box.
 - **Dependency-Injected Logging**: Inject standard loggers like Pino, Winston, or standard `console` objects.
+- **CRS & Projection Limitations**: Conforms to **OGC API - Features Part 1: Core**, utilizing **CRS84** (`http://www.opengis.net/def/crs/OGC/1.3/CRS84` - WGS 84 longitude, latitude) by default for all GeoJSON outputs. It does **not** implement Part 2 (Coordinate Reference Systems by Reference); the query parameters `crs` and `bbox-crs` are not supported. No automatic on-the-fly projection or coordinate conversion is supported. Developers are responsible for performing coordinate transformation in their custom `SpatialDataProvider` if data is stored in other reference systems.
 
 ---
 

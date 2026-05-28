@@ -21,6 +21,7 @@ If your developers prefer a modern, RESTful API returning GeoJSON instead of XML
 - **Database Agnostic**: Bring your own database (PostGIS, MongoDB, SQLite, in-memory, etc.). The library delegates spatial queries to your customized database provider class.
 - **Express Middleware**: Standard, drop-in Express router is included out-of-the-box.
 - **Dependency-Injected Logging**: Inject standard loggers like Pino, Winston, or standard `console` objects.
+- **CRS & Axis-Order Swapping**: Hardcoded coordinate system support for `EPSG:4326` with GML-compliant coordinate formatting (axis-swapping automatic coordinate formatting to `lat lon` for WFS v1.1.0/v2.0.0 vs `lon,lat` for WFS v1.0.0). No automatic projection conversion or on-the-fly coordinate transformation is supported out of the box; developers must perform coordinate transformations in their custom `SpatialDataProvider` if features are stored in another reference system.
 
 ---
 
