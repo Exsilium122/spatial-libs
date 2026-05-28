@@ -130,13 +130,32 @@ app.listen(3000, () => console.log('Spatial API Server running on port 3000!'));
 
 ---
 
-## 2. Granular Consumption: Separate Version Handlers
+## 2. Granular Consumption: Separate Version Handlers & Dispatcher
 
-You can selectively import and plug individual version handlers if you do not want to use the unified Express middleware bundle.
+You can selectively import and plug individual version handlers or the unified request dispatcher if you do not want to use the unified Express middleware bundle (e.g. if you are using Fastify, Koa, or Serverless platforms).
+
+### Framework-Agnostic Dispatcher (`dispatchWfsRequest`)
+
+```typescript
+import { dispatchWfsRequest } from '@spatial-api/wfs';
+
+// Decoupled dispatcher parses version parameters and routes to versioned handlers automatically
+const response = await dispatchWfsRequest({
+  method: 'GET',
+  query: req.query,
+  body: req.body,
+  user: req.user,
+  baseUrl: 'http://localhost:3000/wfs'
+}, wfsOptions);
+
+// Returns standard shape: { status: number, headers: Record<string, string>, body: string }
+```
+
+### Direct Handlers (`handleWfs100`, `handleWfs110`, `handleWfs200`)
 
 ```typescript
 import express from 'express';
-import { handleWfs100, handleWfs200 } from '@spatial-api/wfs';
+import { handleWfs100, handleWfs110, handleWfs200 } from '@spatial-api/wfs';
 
 const app = express();
 
@@ -150,6 +169,20 @@ const wfsOptions = {
 app.get('/wfs/1.0', async (req, res, next) => {
   try {
     const response = await handleWfs100({
+      method: 'GET',
+      query: req.query,
+      user: req.user
+    }, wfsOptions);
+
+    res.status(response.status).set(response.headers).send(response.body);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/wfs/1.1', async (req, res, next) => {
+  try {
+    const response = await handleWfs110({
       method: 'GET',
       query: req.query,
       user: req.user

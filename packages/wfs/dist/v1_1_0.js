@@ -139,8 +139,7 @@ export async function handleWfs110(req, options) {
                     },
                 };
             });
-            const featureTypes = await Promise.all(promises);
-            xmlData.WFS_Capabilities.FeatureTypeList.FeatureType = featureTypes;
+            xmlData.WFS_Capabilities.FeatureTypeList.FeatureType = await Promise.all(promises);
             if (options.xmlOptions?.namespaces) {
                 for (const [k, v] of Object.entries(options.xmlOptions.namespaces)) {
                     if (k !== 'wfs') {

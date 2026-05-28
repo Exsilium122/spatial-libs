@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { verifyProvider, dispatchWfsRequest } from '../src';
-import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src';
+import createWfsRouter, { dispatchWfsRequest } from '../src/index.js';
+import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src/types.js';
 
 // Generic Hello World trees spatial data provider
 class MockTreesProvider implements SpatialDataProvider {
@@ -82,15 +82,22 @@ describe('WFS Library - @spatial-api/wfs', () => {
     }
   };
 
-  it('verifies that the provider meets the SpatialDataProvider contract', () => {
-    expect(() => verifyProvider(provider)).not.toThrow();
+  it('verifies that the provider meets the SpatialDataProvider contract indirectly', () => {
+    expect(() => {
+      createWfsRouter(options);
+    }).not.toThrow();
   });
 
   it('fails verification if a required method is missing', () => {
     const invalidProvider = {
       getSupportedTypes: async () => []
     };
-    expect(() => verifyProvider(invalidProvider as any)).toThrow();
+    expect(() => {
+      createWfsRouter({
+        ...options,
+        provider: invalidProvider as any
+      });
+    }).toThrow('[Spatial-API WFS Verification Error]');
   });
 
   it('handles GetCapabilities WFS 1.0.0 request', async () => {

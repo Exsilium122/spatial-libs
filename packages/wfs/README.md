@@ -96,6 +96,43 @@ When calling `createWfsRouter(options)` or the dispatch handlers, you can custom
 
 ---
 
+## ⚡ Advanced Framework-Agnostic Usage
+
+For use cases where you are not using Express (e.g. Fastify, Koa, AWS Lambda, or Cloud Functions), `@spatial-api/wfs` exports decoupled, pure-function dispatchers and version-specific handlers.
+
+### 1. `dispatchWfsRequest`
+A unified request dispatcher that automatically detects the WFS protocol version requested, verifies enabled versions, and routes it to the appropriate version-specific handler.
+
+```typescript
+import { dispatchWfsRequest, GenericRequest } from '@spatial-api/wfs';
+
+const genericRequest: GenericRequest = {
+  method: 'GET', // or 'POST'
+  query: {
+    request: 'GetCapabilities',
+    version: '2.0.0'
+  },
+  body: {}, // Parsed POST body object (if POST)
+  user: { role: 'admin' }, // Optional auth context
+  baseUrl: 'https://myservice.com/wfs'
+};
+
+const response = await dispatchWfsRequest(genericRequest, wfsOptions);
+// Returns a GenericResponse: { status: number, headers: Record<string, string>, body: string }
+```
+
+### 2. Version-Specific Handlers: `handleWfs100`, `handleWfs110`, `handleWfs200`
+If you want to completely bypass the automatic version detection/negotiation of `dispatchWfsRequest` and bind specific endpoints manually to specific WFS specifications:
+
+```typescript
+import { handleWfs100, handleWfs110, handleWfs200 } from '@spatial-api/wfs';
+
+// Force WFS 1.1.0 logic for a specific endpoint
+const response = await handleWfs110(genericRequest, wfsOptions);
+```
+
+---
+
 ## 🔗 Links
 - **NPM Package**: [https://www.npmjs.com/package/@spatial-api/wfs](https://www.npmjs.com/package/@spatial-api/wfs)
 - **Monorepo GitHub**: [https://github.com/Exsilium122/spatial-libs](https://github.com/Exsilium122/spatial-libs)

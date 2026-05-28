@@ -114,8 +114,7 @@ export async function handleWfs100(req, options) {
                     },
                 };
             });
-            const featureTypes = await Promise.all(promises);
-            xmlData.WFS_Capabilities.FeatureTypeList.FeatureType = featureTypes;
+            xmlData.WFS_Capabilities.FeatureTypeList.FeatureType = await Promise.all(promises);
             const xml = create(xmlData).end({ prettyPrint: true });
             return {
                 status: 200,
@@ -220,7 +219,7 @@ export async function handleWfs100(req, options) {
             }
         }
         if (requestType === 'getfeature' || postAction === 'getfeature') {
-            let featureType = '';
+            let featureType;
             let fids = [];
             let filterQuery = {};
             if (req.method === 'GET') {
@@ -234,7 +233,7 @@ export async function handleWfs100(req, options) {
                     const coords = parts.slice(0, 4).map(Number);
                     if (coords.length === 4 && coords.every(n => !isNaN(n))) {
                         let minLon, minLat, maxLon, maxLat;
-                        let isLatFirst = false;
+                        let isLatFirst;
                         if (Math.abs(coords[1]) > 90 || Math.abs(coords[3]) > 90) {
                             isLatFirst = true;
                         }

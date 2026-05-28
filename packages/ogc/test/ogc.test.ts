@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import createOgcRouter, { verifyProvider } from '../src/index.js';
+import createOgcRouter from '../src/index.js';
 import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src';
-// We don't need a real server to test core dispatch, but we can verify verifyProvider
+// We don't need a real server to test core dispatch, but we can verify provider validation
 // and basic responses since it is standard JS logic.
 
 class MockForestProvider implements SpatialDataProvider {
@@ -43,8 +43,27 @@ class MockForestProvider implements SpatialDataProvider {
 describe('OGC API Features Library - @spatial-api/ogc', () => {
   const provider = new MockForestProvider();
 
-  it('verifies that the provider meets the SpatialDataProvider contract', () => {
-    expect(() => verifyProvider(provider)).not.toThrow();
+  it('verifies that the provider meets the SpatialDataProvider contract indirectly', () => {
+    expect(() => {
+      createOgcRouter({
+        provider,
+        baseUrl: 'http://localhost:9000/api/ogc',
+        appUrl: 'http://localhost:9000'
+      });
+    }).not.toThrow();
+  });
+
+  it('fails verification if the provider is missing required methods', () => {
+    const invalidProvider = {
+      getSupportedTypes: async () => []
+    };
+    expect(() => {
+      createOgcRouter({
+        provider: invalidProvider as any,
+        baseUrl: 'http://localhost:9000/api/ogc',
+        appUrl: 'http://localhost:9000'
+      });
+    }).toThrow('[Spatial-API OGC Verification Error]');
   });
 
   it('creates an express router successfully', () => {

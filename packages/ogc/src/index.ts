@@ -12,7 +12,7 @@ export * from './types.js';
 /**
  * Boot-time verification helper to check if the data provider implements necessary methods.
  */
-export function verifyProvider(provider: SpatialDataProvider): void {
+function verifyProvider(provider: SpatialDataProvider): void {
   const requiredMethods = ['getSupportedTypes', 'getBoundingBox', 'getFeatures'] as const;
   for (const m of requiredMethods) {
     if (typeof provider[m] !== 'function') {
