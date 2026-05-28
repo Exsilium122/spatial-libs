@@ -7,9 +7,12 @@ This is the main monorepo containing our core library packages:
 - **[@spatial-api/wfs](packages/wfs)** (Traditional XML-based Web Feature Service: WFS v1.0.0, v1.1.0, v2.0.0, v2.0.2)
   - [![npm version](https://img.shields.io/npm/v/@spatial-api/wfs.svg)](https://www.npmjs.com/package/@spatial-api/wfs)
   - Published NPM Package: [`@spatial-api/wfs`](https://www.npmjs.com/package/@spatial-api/wfs)
-- **[@spatial-api/ogc](packages/ogc)** (Modern JSON/GeoJSON RESTful API: OGC API - Features Part 1: Core)
+- **[@spatial-api/ogc](packages/ogc)** (Modern JSON/GeoJSON RESTful API: OGC API - Features Part 1: Core, and Part 2: Coordinate Reference Systems by Reference)
   - [![npm version](https://img.shields.io/npm/v/@spatial-api/ogc.svg)](https://www.npmjs.com/package/@spatial-api/ogc)
   - Published NPM Package: [`@spatial-api/ogc`](https://www.npmjs.com/package/@spatial-api/ogc)
+- **[@spatial-api/crs-transformer](packages/crs)** (Dynamic CRS transformations and administrative synonym registry using Proj4)
+  - [![npm version](https://img.shields.io/npm/v/@spatial-api/crs-transformer.svg)](https://www.npmjs.com/package/@spatial-api/crs-transformer)
+  - Published NPM Package: [`@spatial-api/crs-transformer`](https://www.npmjs.com/package/@spatial-api/crs-transformer)
 
 ---
 
@@ -80,6 +83,7 @@ Below is a complete, minimal example using a static array of city park `trees` (
 import express from 'express';
 import createWfsRouter from '@spatial-api/wfs';
 import createOgcRouter from '@spatial-api/ogc';
+import CrsTransformer from '@spatial-api/crs-transformer'; // 1. Import dynamic coordinate transformer plug-in
 import { SpatialDataProvider } from './types';
 
 // 1. Define clean mock spatial data
@@ -106,12 +110,13 @@ const myTreesProvider: SpatialDataProvider = {
 
 const app = express();
 
-// 3. Mount WFS (XML) and OGC Features (JSON) routers
+// 3. Mount WFS (XML) and OGC Features (JSON) routers with CRS Transformer injected
 app.use('/api/wfs', createWfsRouter({
   provider: myTreesProvider,
   baseUrl: 'http://localhost:3000/api/wfs',
   appUrl: 'http://localhost:3000',
   logger: console, // Inject console logger
+  crsTransformer: CrsTransformer, // Inject to automatically translate coordinates and advertise systems
   xmlOptions: {
     namespaces: {
       'parks': 'http://example.com/parks'
@@ -122,7 +127,8 @@ app.use('/api/wfs', createWfsRouter({
 app.use('/api/ogc', createOgcRouter({
   provider: myTreesProvider,
   baseUrl: 'http://localhost:3000/api/ogc',
-  appUrl: 'http://localhost:3000'
+  appUrl: 'http://localhost:3000',
+  crsTransformer: CrsTransformer // Inject to enable dynamic OGC Part 2 CRS queries (?crs and ?bbox-crs)
 }));
 
 app.listen(3000, () => console.log('Spatial API Server running on port 3000!'));

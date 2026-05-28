@@ -140,6 +140,7 @@ When calling `createOgcRouter(options)`, you can customize behavior using the fo
 | `baseUrl` | `string` | **(Required)** The public root endpoint URL (e.g. `http://localhost:3000/api/ogc`). |
 | `appUrl` | `string` | *(Optional)* Core server/app URL fallback. |
 | `logger` | `Logger` | *(Optional)* Custom logger implementation (e.g. Pino, Winston, or `console`). |
+| `crsTransformer` | `CoordinateTransformer` | *(Optional)* Injected Coordinate Transformer instance (e.g. from `@spatial-api/crs-transformer`) enabling dynamic coordinate transformations and OGC Part 2 CRS support. |
 | `defaultLimit` | `number` | *(Optional)* The default fallback item limit returned in pagination (default: `50`). |
 | `maxLimit` | `number` | *(Optional)* The maximum safety limit allowed to request (default: `1000`). |
 

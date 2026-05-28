@@ -118,6 +118,7 @@ When calling `createWfsRouter(options)` or the dispatch handlers, you can custom
 | `baseUrl` | `string` | **(Required)** The public root endpoint URL (e.g. `http://localhost:3000/api/wfs`). |
 | `appUrl` | `string` | *(Optional)* Core server/app URL fallback used in XML metadata schemas. |
 | `logger` | `Logger` | *(Optional)* Custom logger implementation (e.g. Pino, Winston, or `console`). |
+| `crsTransformer` | `CoordinateTransformer` | *(Optional)* Injected Coordinate Transformer instance (e.g. from `@spatial-api/crs-transformer`) enabling dynamic coordinate transformations and WFS 1.1.0/2.0.0 srsName reprojections. |
 | `enabledVersions` | `('1.0.0' \| '1.1.0' \| '2.0.0' \| '2.0.2')[]` | *(Optional)* Constrain WFS requests to only specific active versions. |
 | `xmlOptions` | `object` | *(Optional)* Namespace mapping & XML customization options. |
 
