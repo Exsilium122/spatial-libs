@@ -372,7 +372,7 @@ export async function handleWfs200(
         const getf = req.body['wfs:getfeature'] || req.body.getfeature || {};
         const queries = getf['wfs:query'] || getf.query || [];
         const queryNode = queries[0] || {};
-        featureType = queryNode.$ && queryNode.$.typeName;
+        featureType = queryNode.$ && (queryNode.$.typeNames || queryNode.$.typeName);
         requestedSrs = queryNode.$ && queryNode.$.srsName;
 
         const filters = queryNode['fes:filter'] || queryNode['ogc:filter'] || queryNode.filter;

@@ -17,7 +17,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "test": "npm test --workspaces"
+    "test": "npm test --workspaces",
+    "test:dist": "node scripts/check-dist.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
