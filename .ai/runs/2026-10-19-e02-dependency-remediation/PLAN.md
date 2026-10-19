@@ -52,5 +52,5 @@ Children do not commit `package-lock.json`; the lead regenerates it once at inte
 - [x] Unit B — libs merged (56be55c9)
 - [x] Lockfile regenerated from scratch (stale entries ignored the uuid override), audit: 0 vulnerabilities
 - [x] Full gate green — npm test 55/55, npm run build ok, npm ci ok
-- [ ] Final review approved
-- [ ] PR ready
+- [x] Final review approved (4d74b672, gemini-3.8-flash-high)
+- [x] PR ready
