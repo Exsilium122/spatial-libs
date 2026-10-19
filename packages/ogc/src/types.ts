@@ -34,6 +34,11 @@ export interface OgcCollectionMetadata {
   };
 }
 
+export interface FeatureQueryOptions {
+  limit?: number;
+  offset?: number;
+}
+
 export interface SpatialDataProvider {
   getSupportedTypes(context: any): Promise<string[]>;
   getBoundingBox(context: any, featureType: string): Promise<BoundingBox>;
@@ -41,8 +46,10 @@ export interface SpatialDataProvider {
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    options?: FeatureQueryOptions
   ): Promise<GeoJSONFeature[]>;
+  countFeatures?(context: any, featureType: string, filterQuery?: any): Promise<number>;
   getCollectionsMetadata?(context: any): Promise<OgcCollectionMetadata[]>;
   getGeometryType?(context: any, featureType: string): Promise<'LineString' | 'Point'>;
 }
@@ -63,6 +70,11 @@ export interface OgcOptions {
   appUrl?: string; // Kept as optional for backward compatibility if needed, but not enforced
   defaultLimit?: number;
   maxLimit?: number;
+  /**
+   * List of allowed Host header values (e.g. ['api.example.com', 'localhost:3000']).
+   * Compared case-insensitively; port must be included when present.
+   */
+  trustedHosts?: string[];
 }
 
 export interface GenericRequest {

@@ -116,11 +116,23 @@ When calling `createWfsRouter(options)` or the dispatch handlers, you can custom
 | :--- | :--- | :--- |
 | `provider` | `SpatialDataProvider` | **(Required)** Your custom data provider instance containing database retrieval methods. |
 | `baseUrl` | `string` | **(Required)** The public root endpoint URL (e.g. `http://localhost:3000/api/wfs`). |
+| `trustedHosts` | `string[]` | *(Optional)* Allowed `Host` header values (e.g. `['api.example.com', 'localhost:3000']`), compared case-insensitively. Only used when `baseUrl` is not absolute. |
 | `appUrl` | `string` | *(Optional)* Core server/app URL fallback used in XML metadata schemas. |
 | `logger` | `Logger` | *(Optional)* Custom logger implementation (e.g. Pino, Winston, or `console`). |
 | `crsTransformer` | `CoordinateTransformer` | *(Optional)* Injected Coordinate Transformer instance (e.g. from `@spatial-api/crs-transformer`) enabling dynamic coordinate transformations and WFS 1.1.0/2.0.0 srsName reprojections. |
 | `enabledVersions` | `('1.0.0' \| '1.1.0' \| '2.0.0' \| '2.0.2')[]` | *(Optional)* Constrain WFS requests to only specific active versions. |
 | `xmlOptions` | `object` | *(Optional)* Namespace mapping & XML customization options. |
+
+### 🔒 Base URL Resolution & Host-Header Security
+
+To protect GetCapabilities metadata and DCP endpoints against Host-header poisoning and cache poisoning attacks:
+
+1. **Absolute `baseUrl`**: When `options.baseUrl` is configured with an absolute URL (`http://` or `https://`), the router uses `options.baseUrl` directly and ignores the `Host` header.
+2. **Relative `baseUrl`**: When `options.baseUrl` is relative (e.g. `/wfs`):
+   - The incoming `Host` header is validated against a strict hostname/port format (`/^[a-zA-Z0-9.-]+(:\d{1,5})?$/` or bracketed IPv6 literal like `[::1]:3000`).
+   - If `trustedHosts` is specified, the `Host` header must match one of the allowed host entries (compared case-insensitively).
+   - If the `Host` header is malformed, missing, or untrusted, `baseUrl` is set to `undefined`, allowing handlers to safely fall back to the configured relative `options.baseUrl` without reflecting the untrusted host.
+3. **Configuration Warning**: If a relative `baseUrl` is provided without `trustedHosts`, `createWfsRouter` emits a one-time logger warning recommending an absolute `baseUrl` or `trustedHosts` allowlist.
 
 ---
 

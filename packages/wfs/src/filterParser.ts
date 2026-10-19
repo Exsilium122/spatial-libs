@@ -1,5 +1,71 @@
 import { parseXml } from './xmlHelper.js';
 
+export class FilterValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FilterValidationError';
+  }
+}
+
+/**
+ * Validates a property name against NoSQL operator injection and prototype pollution.
+ */
+function validatePropertyName(name: unknown): string {
+  if (typeof name !== 'string') {
+    throw new FilterValidationError(`Invalid PropertyName: expected string, received ${typeof name}`);
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+    throw new FilterValidationError(`Invalid PropertyName "${name}": must match /^[a-zA-Z0-9_.-]+$/`);
+  }
+  if (name.startsWith('$')) {
+    throw new FilterValidationError(`Invalid PropertyName "${name}": cannot start with "$"`);
+  }
+  const segments = name.split('.');
+  for (const seg of segments) {
+    if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') {
+      throw new FilterValidationError(`Invalid PropertyName "${name}": contains forbidden property segment "${seg}"`);
+    }
+  }
+  return name;
+}
+
+/**
+ * Validates a literal value. Accepts only primitive string, number, or boolean.
+ * Missing literals (undefined) return undefined to preserve existing behavior.
+ */
+function validateLiteral(lit: unknown): string | number | boolean | undefined {
+  if (lit === undefined) {
+    return undefined;
+  }
+  if (typeof lit === 'string' || typeof lit === 'number' || typeof lit === 'boolean') {
+    return lit;
+  }
+  throw new FilterValidationError(`Invalid Literal: expected string, number, or boolean primitive, received ${typeof lit}`);
+}
+
+/**
+ * Converts a PropertyIsLike pattern (wildcards * or %) into an anchored, case-insensitive RegExp
+ * that matches in linear time. A naive `.*` per wildcard backtracks polynomially (O(n^k) for k
+ * wildcards). Instead, every middle segment is matched at its earliest occurrence inside an
+ * atomic group emulated with a capturing lookahead + backreference, which is equivalent for
+ * glob semantics and cannot backtrack.
+ */
+function likePatternToRegExp(pattern: string): RegExp {
+  const segments = pattern
+    .replace(/[*%]+/g, '*')
+    .split('*')
+    .map((s) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+  if (segments.length === 1) {
+    return new RegExp('^' + segments[0] + '$', 'i');
+  }
+  let source = '^' + segments[0];
+  for (let i = 1; i < segments.length - 1; i++) {
+    source += '(?=(.*?' + segments[i] + '))\\' + i;
+  }
+  source += '.*' + segments[segments.length - 1] + '$';
+  return new RegExp(source, 'i');
+}
+
 /**
  * Unwraps arrays recursively to support both explicitArray: true and simple object outputs.
  */
@@ -16,10 +82,13 @@ export function unwrap(val: any): any {
 export function normalizeKeys(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(normalizeKeys);
-  const res: Record<string, any> = {};
+  const res: Record<string, any> = Object.create(null);
   for (const key of Object.keys(obj)) {
     if (key.startsWith('@') || key === '$') continue;
     const cleanKey = key.includes(':') ? key.split(':')[1] : key;
+    if (cleanKey === '__proto__' || cleanKey === 'constructor' || cleanKey === 'prototype') {
+      continue;
+    }
     res[cleanKey] = normalizeKeys(obj[key]);
   }
   return res;
@@ -76,9 +145,12 @@ export function parseFilterObj(filterNode: any): any {
   // 1. Spatial BBOX Filter
   if (filterNode.BBOX) {
     const bboxNode = unwrap(filterNode.BBOX);
-    const propName = unwrap(bboxNode.PropertyName) || 'geo';
+    const rawProp = bboxNode?.PropertyName !== undefined && bboxNode?.PropertyName !== null
+      ? unwrap(bboxNode.PropertyName)
+      : undefined;
+    const propName = rawProp !== undefined ? validatePropertyName(rawProp) : 'geo';
     const dbPropName = propName === 'geo' ? 'geo.coordinates' : propName;
-    const boxNode = unwrap(bboxNode.Box);
+    const boxNode = unwrap(bboxNode?.Box);
     if (boxNode && boxNode.coordinates) {
       const coordStr = unwrap(boxNode.coordinates).trim();
       const coords = coordStr.split(/\s+/).map((p: string) => p.split(',').map(Number));
@@ -104,51 +176,51 @@ export function parseFilterObj(filterNode: any): any {
   // 2. Simple Comparisons
   if (filterNode.PropertyIsEqualTo) {
     const node = unwrap(filterNode.PropertyIsEqualTo);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = lit;
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = lit;
   }
   if (filterNode.PropertyIsNotEqualTo) {
     const node = unwrap(filterNode.PropertyIsNotEqualTo);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = { $ne: lit };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = { $ne: lit };
   }
   if (filterNode.PropertyIsLessThan) {
     const node = unwrap(filterNode.PropertyIsLessThan);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = { $lt: lit };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = { $lt: lit };
   }
   if (filterNode.PropertyIsGreaterThan) {
     const node = unwrap(filterNode.PropertyIsGreaterThan);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = { $gt: lit };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = { $gt: lit };
   }
   if (filterNode.PropertyIsLessThanOrEqualTo) {
     const node = unwrap(filterNode.PropertyIsLessThanOrEqualTo);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = { $lte: lit };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = { $lte: lit };
   }
   if (filterNode.PropertyIsGreaterThanOrEqualTo) {
     const node = unwrap(filterNode.PropertyIsGreaterThanOrEqualTo);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop) query[prop] = { $gte: lit };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const lit = validateLiteral(unwrap(node?.Literal));
+    query[prop] = { $gte: lit };
   }
   if (filterNode.PropertyIsLike) {
     const node = unwrap(filterNode.PropertyIsLike);
-    const prop = unwrap(node.PropertyName);
-    const lit = unwrap(node.Literal);
-    if (prop && lit) {
-      // Map wildcards (* or %) to regex
-      const escaped = lit
-        .replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') // escape regex chars
-        .replace(/\\\*/g, '.*')
-        .replace(/\\%/g, '.*');
-      query[prop] = { $regex: new RegExp('^' + escaped + '$', 'i') };
+    const prop = validatePropertyName(unwrap(node?.PropertyName));
+    const rawLit = unwrap(node?.Literal);
+    const lit = validateLiteral(rawLit);
+    if (lit !== undefined) {
+      const litStr = String(lit);
+      if (litStr.length > 256) {
+        throw new FilterValidationError('PropertyIsLike literal exceeds maximum length of 256 characters');
+      }
+      query[prop] = { $regex: likePatternToRegExp(litStr) };
     }
   }
 

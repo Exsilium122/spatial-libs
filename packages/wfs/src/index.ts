@@ -123,6 +123,39 @@ export async function dispatchWfsRequest(
   }
 }
 
+const HOST_REGEX = /^[a-zA-Z0-9.-]+(:\d{1,5})?$/;
+const IPV6_HOST_REGEX = /^\[[a-fA-F0-9:]+\](:\d{1,5})?$/;
+
+function isAbsoluteUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function isValidHost(host: string): boolean {
+  return HOST_REGEX.test(host) || IPV6_HOST_REGEX.test(host);
+}
+
+function resolveBaseUrl(req: Request, options: WfsOptions): string | undefined {
+  if (isAbsoluteUrl(options.baseUrl)) {
+    return options.baseUrl;
+  }
+
+  const host = req.get('host');
+  if (!host || typeof host !== 'string' || !isValidHost(host)) {
+    return undefined;
+  }
+
+  if (options.trustedHosts) {
+    const isAllowed = options.trustedHosts.some(
+      (trusted) => trusted.toLowerCase() === host.toLowerCase()
+    );
+    if (!isAllowed) {
+      return undefined;
+    }
+  }
+
+  return `${req.protocol}://${host}${req.baseUrl}`;
+}
+
 /**
  * Creates a standard Express router configured with the WFS protocol handlers.
  */
@@ -140,6 +173,12 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
     options.logger?.info(`[Spatial WFS] CRS Reprojection enabled. Injected systems: ${options.crsTransformer.getSupportedCodes().join(', ')}`);
   } else {
     options.logger?.info('[Spatial WFS] Operating in native WGS84 mode (No CRS transformer injected).');
+  }
+
+  if (!isAbsoluteUrl(options.baseUrl) && !options.trustedHosts) {
+    options.logger?.warn(
+      '[Spatial WFS] baseUrl is relative and trustedHosts is not configured. An absolute baseUrl or trustedHosts allowlist is recommended to prevent Host header poisoning.'
+    );
   }
 
   const router = express.Router();
@@ -168,7 +207,7 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
         query: (req as any).normalizedQuery || req.query,
         body: req.body,
         user: (req as any).user || {},
-        baseUrl: `${req.protocol}://${req.get('host')}${req.baseUrl}`
+        baseUrl: resolveBaseUrl(req, options)
       };
 
       const result = await dispatchWfsRequest(genericReq, options);
