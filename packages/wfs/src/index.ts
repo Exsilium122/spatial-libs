@@ -236,5 +236,20 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
   router.get('/', requestHandler);
   router.post('/', requestHandler);
 
+  // Malformed XML bodies are rejected by xmlparser via next(err); answer with an OWS exception
+  // instead of letting Express render its default HTML error page (which includes a stack trace).
+  router.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      return next(err);
+    }
+    options.logger?.warn('[Spatial WFS] Rejected unparseable request body:', err?.message);
+    const exception = buildExceptionResponse('OperationParsingFailed', 'request', 'Request body is not well-formed XML', '1.1.0');
+    res.status(400);
+    for (const [k, v] of Object.entries(exception.headers)) {
+      res.setHeader(k, v);
+    }
+    res.send(exception.body);
+  });
+
   return router;
 }

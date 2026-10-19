@@ -76,19 +76,45 @@ export function unwrap(val: any): any {
   return val;
 }
 
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
- * Strips namespace prefixes recursively from keys in a parsed XML object.
+ * Canonical casing of the filter elements parseFilterObj understands. express-xml-bodyparser
+ * lowercases tag names (normalizeTags), so POST bodies arrive as e.g. `ogc:propertyisequalto`.
+ */
+const CANONICAL_FILTER_KEYS = new Map(
+  [
+    'Filter', 'FeatureId', 'ResourceId', 'BBOX', 'Box', 'coordinates', 'PropertyName', 'Literal',
+    'PropertyIsEqualTo', 'PropertyIsNotEqualTo', 'PropertyIsLessThan', 'PropertyIsGreaterThan',
+    'PropertyIsLessThanOrEqualTo', 'PropertyIsGreaterThanOrEqualTo', 'PropertyIsLike',
+    'And', 'Or', 'Not',
+  ].map((k) => [k.toLowerCase(), k] as const)
+);
+
+/**
+ * Strips namespace prefixes recursively from keys in a parsed XML object and restores the
+ * canonical casing of known filter elements. The xml2js attribute bag (`$`) is kept as a
+ * flat, prototype-free copy so FeatureId/ResourceId `fid`/`rid` attributes survive.
  */
 export function normalizeKeys(obj: any): any {
   if (!obj || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(normalizeKeys);
   const res: Record<string, any> = Object.create(null);
   for (const key of Object.keys(obj)) {
-    if (key.startsWith('@') || key === '$') continue;
-    const cleanKey = key.includes(':') ? key.split(':')[1] : key;
-    if (cleanKey === '__proto__' || cleanKey === 'constructor' || cleanKey === 'prototype') {
+    if (key.startsWith('@')) continue;
+    if (key === '$') {
+      const attrs: Record<string, any> = Object.create(null);
+      for (const [name, value] of Object.entries(obj.$ || {})) {
+        if (!FORBIDDEN_KEYS.has(name) && typeof value === 'string') attrs[name] = value;
+      }
+      res.$ = attrs;
       continue;
     }
+    const localKey = key.includes(':') ? key.split(':')[1] : key;
+    if (FORBIDDEN_KEYS.has(localKey)) {
+      continue;
+    }
+    const cleanKey = CANONICAL_FILTER_KEYS.get(localKey.toLowerCase()) ?? localKey;
     res[cleanKey] = normalizeKeys(obj[key]);
   }
   return res;
