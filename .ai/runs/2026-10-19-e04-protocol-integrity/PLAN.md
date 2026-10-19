@@ -28,9 +28,9 @@ The three stories touch disjoint packages and share no interface change
 ### Phase 1 — Parallel fixes
 - [x] 1.1 Unit A — OGC native BBOX filtering (#15)
 - [x] 1.2 Unit B — CRS 3D coordinate reprojection (#16)
-- [ ] 1.3 Unit C — WFS exception sanitization (#17)
+- [x] 1.3 Unit C — WFS exception sanitization (#17)
 
 ### Phase 2 — Integration
-- [ ] 2.1 Full gate (`npm test`, `npm run build`) on merged branch
+- [x] 2.1 Full gate (`npm test`, `npm run build`) on merged branch
 - [ ] 2.2 Independent review task verdict = approve
 - [ ] 2.3 PR ready
