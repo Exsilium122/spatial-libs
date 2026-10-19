@@ -18,7 +18,7 @@ export class WfsClientError extends Error {
 }
 
 export function buildExceptionXml(code: string | number, locator: string, msg: string, version: string = '1.1.0'): string {
-  // WFS 2.0.0 uses OwsExceptionReport, while older versions use ServiceExceptionReport
+  // WFS 2.0.0 uses OWS ExceptionReport 1.1.0
   if (version.startsWith('2.')) {
     const xmlData = {
       'ows:ExceptionReport': {
@@ -34,14 +34,31 @@ export function buildExceptionXml(code: string | number, locator: string, msg: s
       }
     };
     return buildXml(xmlData);
+  } else if (version === '1.1.0') {
+    // WFS 1.1.0 uses OWS ExceptionReport version 1.1.0
+    const xmlData = {
+      'ows:ExceptionReport': {
+        '@version': '1.1.0',
+        '@xmlns:ows': 'http://www.opengis.net/ows',
+        '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+        '@xsi:schemaLocation': 'http://www.opengis.net/ows http://schemas.opengis.net/ows/1.1.0/owsExceptionReport.xsd',
+        'ows:Exception': {
+          '@exceptionCode': String(code),
+          '@code': String(code),
+          '@locator': locator,
+          'ows:ExceptionText': msg
+        }
+      }
+    };
+    return buildXml(xmlData);
   } else {
-    // 1.0.0 or 1.1.0 standard
+    // 1.0.0 standard uses ServiceExceptionReport version 1.2.0 in OGC namespace
     const xmlData = {
       ServiceExceptionReport: {
-        '@version': version === '1.0.0' ? '1.2.0' : '1.1.0',
+        '@version': '1.2.0',
         '@xmlns': 'http://www.opengis.net/ogc',
         '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-        '@xsi:schemaLocation': 'http://www.opengis.net/ogc http://schemas.opengis.net/wfs/1.1.0/wfs.xsd',
+        '@xsi:schemaLocation': 'http://www.opengis.net/ogc http://schemas.opengis.net/wfs/1.0.0/OGC-exception.xsd',
         ServiceException: {
           '@code': String(code),
           '@locator': locator,
@@ -53,10 +70,17 @@ export function buildExceptionXml(code: string | number, locator: string, msg: s
   }
 }
 
-export function buildExceptionResponse(code: string | number, locator: string, msg: string, version: string = '1.1.0'): GenericResponse {
+export function buildExceptionResponse(
+  code: string | number,
+  locator: string,
+  msg: string,
+  version: string = '1.1.0',
+  status: number = 400
+): GenericResponse {
+  if (code === 'NotFound' && status === 400) status = 404;
   const body = buildExceptionXml(code, locator, msg, version);
   return {
-    status: 400,
+    status,
     headers: {
       'Content-Type': 'text/xml'
     },

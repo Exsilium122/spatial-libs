@@ -181,53 +181,76 @@ export async function handleWfs110(
 
     if (requestType === 'describefeaturetype') {
       let typeName = query.TYPENAME || query.TYPENAMES || '';
-      if (typeName) {
-        const cleanType = typeName.replace(/^.*:/, '');
-        const geomType = (typeof provider.getGeometryType === 'function') 
-          ? await provider.getGeometryType(req.user, cleanType) 
-          : 'Point';
+      const typesToDescribe = typeName
+        ? typeName.split(',').map((t: string) => t.trim().replace(/^[^:]+:/, ''))
+        : await provider.getSupportedTypes(req.user);
 
-        const gmlGeomType = geomType === 'LineString' ? 'gml:LineStringPropertyType' : 'gml:PointPropertyType';
+      if (typesToDescribe.length > 0) {
+        const elementList: any[] = [];
+        const complexTypeList: any[] = [];
 
-        // Dynamic schema resolution
-        let propertiesSchema: Record<string, string> = {};
-        if (typeof provider.getPropertiesSchema === 'function') {
-          propertiesSchema = await provider.getPropertiesSchema(req.user, cleanType);
-        } else {
-          // Fallback: fetch a sample feature to infer properties dynamically
-          const sampleFeatures = await provider.getFeatures(req.user, cleanType, [], { limit: 1 });
-          if (sampleFeatures.length > 0 && sampleFeatures[0].properties) {
-            for (const key of Object.keys(sampleFeatures[0].properties)) {
-              const val = sampleFeatures[0].properties[key];
-              propertiesSchema[key] = typeof val === 'number' ? 'double' : (typeof val === 'boolean' ? 'boolean' : 'string');
-            }
+        for (const cleanType of typesToDescribe) {
+          const geomType = (typeof provider.getGeometryType === 'function') 
+            ? await provider.getGeometryType(req.user, cleanType) 
+            : 'Point';
+
+          const gmlGeomType = geomType === 'LineString' ? 'gml:LineStringPropertyType' : 'gml:PointPropertyType';
+
+          let propertiesSchema: Record<string, string> = {};
+          if (typeof provider.getPropertiesSchema === 'function') {
+            propertiesSchema = await provider.getPropertiesSchema(req.user, cleanType);
           } else {
-            // Default fallback
-            propertiesSchema = {
-              name: 'string',
-              note: 'string',
-              url: 'string',
-            };
+            const sampleFeatures = await provider.getFeatures(req.user, cleanType, [], { limit: 1 });
+            if (sampleFeatures.length > 0 && sampleFeatures[0].properties) {
+              for (const key of Object.keys(sampleFeatures[0].properties)) {
+                const val = sampleFeatures[0].properties[key];
+                propertiesSchema[key] = typeof val === 'number' ? 'double' : (typeof val === 'boolean' ? 'boolean' : 'string');
+              }
+            } else {
+              propertiesSchema = {
+                name: 'string',
+                note: 'string',
+                url: 'string',
+              };
+            }
           }
-        }
 
-        const elements: any[] = [
-          {
-            '@name': 'geo',
-            '@nillable': 'true',
-            '@type': gmlGeomType,
+          const elements: any[] = [
+            {
+              '@name': 'geo',
+              '@nillable': 'true',
+              '@type': gmlGeomType,
+            }
+          ];
+
+          for (const [propName, propType] of Object.entries(propertiesSchema)) {
+            let xsdType = 'string';
+            if (propType === 'integer') xsdType = 'integer';
+            else if (propType === 'double') xsdType = 'double';
+            else if (propType === 'boolean') xsdType = 'boolean';
+
+            elements.push({
+              '@name': propName,
+              '@type': xsdType,
+            });
           }
-        ];
 
-        for (const [propName, propType] of Object.entries(propertiesSchema)) {
-          let xsdType = 'string';
-          if (propType === 'integer') xsdType = 'integer';
-          else if (propType === 'double') xsdType = 'double';
-          else if (propType === 'boolean') xsdType = 'boolean';
+          elementList.push({
+            '@name': cleanType,
+            '@type': `${nsPrefix}:${cleanType}_Type`,
+            '@substitutionGroup': 'gml:_Feature',
+          });
 
-          elements.push({
-            '@name': propName,
-            '@type': xsdType,
+          complexTypeList.push({
+            '@name': `${cleanType}_Type`,
+            complexContent: {
+              extension: {
+                '@base': 'gml:AbstractFeatureType',
+                sequence: {
+                  element: elements,
+                },
+              },
+            },
           });
         }
 
@@ -244,22 +267,8 @@ export async function handleWfs110(
               '@namespace': 'http://www.opengis.net/gml',
               '@schemaLocation': 'http://schemas.opengis.net/gml/3.1.1/base/gml.xsd',
             },
-            element: {
-              '@name': cleanType,
-              '@type': `${nsPrefix}:${cleanType}_Type`,
-              '@substitutionGroup': 'gml:_Feature',
-            },
-            complexType: {
-              '@name': `${cleanType}_Type`,
-              complexContent: {
-                extension: {
-                  '@base': 'gml:AbstractFeatureType',
-                  sequence: {
-                    element: elements,
-                  },
-                },
-              },
-            },
+            element: elementList.length === 1 ? elementList[0] : elementList,
+            complexType: complexTypeList.length === 1 ? complexTypeList[0] : complexTypeList,
           },
         };
 
@@ -291,28 +300,22 @@ export async function handleWfs110(
         if (query.BBOX) {
           const parts = String(query.BBOX).split(',');
           const coords = parts.slice(0, 4).map(Number);
+          const bboxCrs = parts[4] ? parts[4].trim() : '';
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
-            let minLon, minLat, maxLon, maxLat;
-            let isLatFirst;
-            if (Math.abs(coords[1]) > 90 || Math.abs(coords[3]) > 90) {
-              isLatFirst = true;
-            } else if (Math.abs(coords[0]) > 90 || Math.abs(coords[2]) > 90) {
-              isLatFirst = false;
+            const isUrnLatLon = /(?:urn:ogc:def:crs:EPSG|urn:x-ogc:def:crs:EPSG|http:\/\/www\.opengis\.net\/def\/crs\/EPSG)/i.test(bboxCrs) && bboxCrs.includes('4326');
+            let minLon: number, minLat: number, maxLon: number, maxLat: number;
+            if (isUrnLatLon) {
+              minLat = coords[0];
+              minLon = coords[1];
+              maxLat = coords[2];
+              maxLon = coords[3];
             } else {
-              isLatFirst = Math.abs(coords[0]) > Math.abs(coords[1]);
+              minLon = coords[0];
+              minLat = coords[1];
+              maxLon = coords[2];
+              maxLat = coords[3];
             }
 
-            if (isLatFirst) {
-              minLat = Math.min(coords[0], coords[2]);
-              minLon = Math.min(coords[1], coords[3]);
-              maxLat = Math.max(coords[0], coords[2]);
-              maxLon = Math.max(coords[1], coords[3]);
-            } else {
-              minLon = Math.min(coords[0], coords[2]);
-              minLat = Math.min(coords[1], coords[3]);
-              maxLon = Math.max(coords[0], coords[2]);
-              maxLat = Math.max(coords[1], coords[3]);
-            }
             filterQuery['geo.coordinates'] = {
               $geoWithin: {
                 $geometry: {
@@ -360,6 +363,24 @@ export async function handleWfs110(
         }
       }
 
+      if (!featureType && fids.length > 0) {
+        const supported = await provider.getSupportedTypes(req.user);
+        for (const t of supported) {
+          const check = await provider.getFeatures(req.user, t, fids, filterQuery);
+          if (check.length > 0) {
+            featureType = t;
+            break;
+          }
+        }
+        if (!featureType && supported.length > 0) {
+          featureType = supported[0];
+        }
+      }
+
+      if (!featureType) {
+        return buildExceptionResponse('MissingParameterValue', 'typeName', 'error: missing feature type', '1.1.0');
+      }
+
       let targetSrs = 'EPSG:4326';
       let doReproject = false;
       if (requestedSrs && options.crsTransformer) {
@@ -384,7 +405,37 @@ export async function handleWfs110(
       if (featureType) {
         const cleanType = featureType.replace(/^.*:/, '');
         const bbox = await provider.getBoundingBox(req.user, cleanType);
-        const features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+        let features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+
+        const totalMatched = features.length;
+
+        // SortBy support
+        const sortByParam = query.SORTBY || query.sortBy || query.sortby;
+        if (sortByParam) {
+          const parts = String(sortByParam).trim().split(/\s+/);
+          const sortProp = parts[0].replace(/^[^:]+:/, '');
+          const isDesc = parts[1] && parts[1].toUpperCase().startsWith('D');
+          features.sort((a, b) => {
+            const va = a.properties?.[sortProp];
+            const vb = b.properties?.[sortProp];
+            if (va === vb) return 0;
+            if (va === undefined || va === null) return 1;
+            if (vb === undefined || vb === null) return -1;
+            const cmp = va < vb ? -1 : 1;
+            return isDesc ? -cmp : cmp;
+          });
+        }
+
+        // MaxFeatures support
+        const maxFeaturesParam = query.MAXFEATURES || query.maxFeatures || query.maxfeatures;
+        if (maxFeaturesParam) {
+          const maxNum = parseInt(maxFeaturesParam, 10);
+          if (!isNaN(maxNum) && maxNum >= 0) {
+            features = features.slice(0, maxNum);
+          }
+        }
+
+        const resultType = (query.RESULTTYPE || query.resultType || 'results').toLowerCase();
 
         let displayBbox = { ...bbox };
         if (doReproject && options.crsTransformer) {
@@ -423,6 +474,11 @@ export async function handleWfs110(
           },
         };
 
+        if (resultType === 'hits') {
+          xmlData['wfs:FeatureCollection']['@numberOfFeatures'] = String(totalMatched);
+          xmlData['wfs:FeatureCollection']['@timeStamp'] = new Date().toISOString();
+        }
+
         if (options.xmlOptions?.namespaces) {
           for (const [k, v] of Object.entries(options.xmlOptions.namespaces)) {
             if (k !== 'wfs') {
@@ -431,58 +487,60 @@ export async function handleWfs110(
           }
         }
 
-        features.forEach((feature) => {
-          let geom = feature.geometry;
-          if (doReproject && options.crsTransformer) {
-            geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
-          }
-
-          const coords = geom?.coordinates;
-          if (coords) {
-            const isLineString = geom?.type === 'LineString';
-            let gmlGeo;
-
-            if (isLineString) {
-              const posListStr = coords.map((coor: any) => {
-                return isLatFirst(targetSrs)
-                  ? `${coor[1]} ${coor[0]}`
-                  : `${coor[0]} ${coor[1]}`;
-              }).join(' ');
-
-              gmlGeo = {
-                'gml:LineString': {
-                  '@srsName': targetSrs,
-                  'gml:posList': posListStr,
-                },
-              };
-            } else {
-              const posStr = isLatFirst(targetSrs)
-                ? `${coords[1]} ${coords[0]}`
-                : `${coords[0]} ${coords[1]}`;
-
-              gmlGeo = {
-                'gml:Point': {
-                  '@srsName': targetSrs,
-                  'gml:pos': posStr,
-                },
-              };
+        if (resultType !== 'hits') {
+          features.forEach((feature) => {
+            let geom = feature.geometry;
+            if (doReproject && options.crsTransformer) {
+              geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
             }
 
-            const featureProps: Record<string, any> = {
-              '@xmlns:wfs': nsUri,
-              '@fid': feature.id.toString(),
-              [`${nsPrefix}:geo`]: gmlGeo
-            };
+            const coords = geom?.coordinates;
+            if (coords) {
+              const isLineString = geom?.type === 'LineString';
+              let gmlGeo;
 
-            for (const [k, v] of Object.entries(feature.properties || {})) {
-              featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
+              if (isLineString) {
+                const posListStr = coords.map((coor: any) => {
+                  return isLatFirst(targetSrs)
+                    ? `${coor[1]} ${coor[0]}`
+                    : `${coor[0]} ${coor[1]}`;
+                }).join(' ');
+
+                gmlGeo = {
+                  'gml:LineString': {
+                    '@srsName': targetSrs,
+                    'gml:posList': posListStr,
+                  },
+                };
+              } else {
+                const posStr = isLatFirst(targetSrs)
+                  ? `${coords[1]} ${coords[0]}`
+                  : `${coords[0]} ${coords[1]}`;
+
+                gmlGeo = {
+                  'gml:Point': {
+                    '@srsName': targetSrs,
+                    'gml:pos': posStr,
+                  },
+                };
+              }
+
+              const featureProps: Record<string, any> = {
+                '@xmlns:wfs': nsUri,
+                '@fid': feature.id.toString(),
+                [`${nsPrefix}:geo`]: gmlGeo
+              };
+
+              for (const [k, v] of Object.entries(feature.properties || {})) {
+                featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
+              }
+
+              xmlData['wfs:FeatureCollection']['gml:featureMember'].push({
+                [`${nsPrefix}:${cleanType}`]: featureProps,
+              });
             }
-
-            xmlData['wfs:FeatureCollection']['gml:featureMember'].push({
-              [`${nsPrefix}:${cleanType}`]: featureProps,
-            });
-          }
-        });
+          });
+        }
 
         const xml = buildXml(xmlData);
         return {
@@ -495,7 +553,7 @@ export async function handleWfs110(
       }
     }
 
-    return buildExceptionResponse(400, 'WFS', 'Unsupported or invalid WFS request', '1.1.0');
+    return buildExceptionResponse('OperationNotSupported', 'request', 'Unsupported or invalid WFS request', '1.1.0');
   } catch (err: any) {
     if (err instanceof FilterValidationError || err?.name === 'FilterValidationError') {
       return buildExceptionResponse('InvalidParameterValue', 'filter', err.message, '1.1.0');
@@ -504,6 +562,6 @@ export async function handleWfs110(
       return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, '1.1.0');
     }
     if (logger) logger.error('WFS 1.1.0 error:', err);
-    return buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0');
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0', 400);
   }
 }

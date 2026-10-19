@@ -32,6 +32,10 @@ export interface OgcCollectionMetadata {
       bbox: number[][];
     };
   };
+  links?: any[];
+  crs?: string[];
+  storageCrs?: string;
+  storageCRS?: string;
 }
 
 export interface FeatureQueryOptions {

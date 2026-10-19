@@ -269,7 +269,7 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
       await stopServer(server);
     });
 
-    it('sanitizes invalid or negative limit and offset to defaults', async () => {
+    it('rejects invalid limit with 400 and caps large limit to maxLimit', async () => {
       const provider = new PaginationAwareProvider();
       const router = createOgcRouter({
         provider,
@@ -281,13 +281,11 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
 
       // Negative values
       const res1 = await makeRequest(port, '/api/ogc/collections/parcels/items?limit=-5&offset=-10');
-      expect(res1.status).toBe(200);
-      expect(provider.lastOptions).toEqual({ limit: 25, offset: 0 });
+      expect(res1.status).toBe(400);
 
       // Non-numeric strings
       const res2 = await makeRequest(port, '/api/ogc/collections/parcels/items?limit=abc&offset=xyz');
-      expect(res2.status).toBe(200);
-      expect(provider.lastOptions).toEqual({ limit: 25, offset: 0 });
+      expect(res2.status).toBe(400);
 
       // Capped at maxLimit
       const res3 = await makeRequest(port, '/api/ogc/collections/parcels/items?limit=500&offset=0');

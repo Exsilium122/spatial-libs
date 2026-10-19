@@ -47,6 +47,41 @@ function verifyLogger(logger: any): void {
   );
 }
 
+function parseVersion(v: string): number[] {
+  return v.split('.').map((n) => parseInt(n, 10) || 0);
+}
+
+function compareVersions(v1: string, v2: string): number {
+  const p1 = parseVersion(v1);
+  const p2 = parseVersion(v2);
+  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+    const n1 = p1[i] || 0;
+    const n2 = p2[i] || 0;
+    if (n1 !== n2) return n1 - n2;
+  }
+  return 0;
+}
+
+const SUPPORTED_VERSIONS = ['1.0.0', '1.1.0', '2.0.0', '2.0.2'] as const;
+
+function negotiateVersion(requested: string): string {
+  if (SUPPORTED_VERSIONS.includes(requested as any)) {
+    return requested;
+  }
+  if (compareVersions(requested, '2.0.2') >= 0) {
+    return '2.0.2';
+  }
+  if (compareVersions(requested, '1.0.0') <= 0) {
+    return '1.0.0';
+  }
+  for (let i = SUPPORTED_VERSIONS.length - 1; i >= 0; i--) {
+    if (compareVersions(requested, SUPPORTED_VERSIONS[i]) >= 0) {
+      return SUPPORTED_VERSIONS[i];
+    }
+  }
+  return '1.0.0';
+}
+
 /**
  * Framework-agnostic unified WFS request dispatcher.
  */
@@ -54,21 +89,53 @@ export async function dispatchWfsRequest(
   req: GenericRequest,
   options: WfsOptions
 ): Promise<GenericResponse> {
-  let version = req.query?.VERSION || req.query?.version || req.query?.Version || '';
+  const query = req.query || {};
+  const request = (query.REQUEST || query.request || query.Request || '').toLowerCase();
+  const rawService = query.SERVICE ?? query.service ?? query.Service;
+  const rawVersion = query.VERSION ?? query.version ?? query.Version;
+  const rawAcceptVersions = query.ACCEPTVERSIONS ?? query.acceptVersions ?? query.AcceptVersions;
+
+  let version = rawVersion ? String(rawVersion) : '';
 
   try {
-    // Check AcceptVersions parameter (used in GetCapabilities)
-    const acceptVersions = req.query?.ACCEPTVERSIONS || req.query?.acceptVersions || req.query?.AcceptVersions;
-    if (!version && acceptVersions) {
-      const versions = String(acceptVersions).split(',');
-      if (versions.includes('2.0.2')) {
+    // Check SERVICE parameter if provided
+    if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
+      return buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
+    }
+
+    if (request === 'getcapabilities') {
+      if (rawAcceptVersions) {
+        const versions = String(rawAcceptVersions).split(',').map((s) => s.trim());
+        if (versions.includes('2.0.2')) {
+          version = '2.0.2';
+        } else if (versions.includes('2.0.0')) {
+          version = '2.0.0';
+        } else if (versions.includes('1.1.0')) {
+          version = '1.1.0';
+        } else if (versions.includes('1.0.0')) {
+          version = '1.0.0';
+        } else {
+          const body = buildExceptionXml(
+            'VersionNegotiationFailed',
+            'AcceptVersions',
+            `None of the requested versions (${rawAcceptVersions}) are supported.`,
+            '1.1.0'
+          );
+          return {
+            status: 400,
+            headers: { 'Content-Type': 'text/xml' },
+            body,
+          };
+        }
+      } else if (version) {
+        version = negotiateVersion(version);
+      } else {
         version = '2.0.2';
-      } else if (versions.includes('2.0.0')) {
-        version = '2.0.0';
-      } else if (versions.includes('1.1.0')) {
-        version = '1.1.0';
-      } else if (versions.includes('1.0.0')) {
-        version = '1.0.0';
+      }
+    } else {
+      // Non-GetCapabilities request with explicit version
+      if (version && !SUPPORTED_VERSIONS.includes(version as any)) {
+        return buildExceptionResponse('InvalidParameterValue', 'version', `Unsupported WFS version: ${version}`, '2.0.0');
       }
     }
 
@@ -119,7 +186,7 @@ export async function dispatchWfsRequest(
     if (options.logger) {
       options.logger.error('WFS dispatch error:', err);
     }
-    return buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, version || '1.1.0');
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version || '2.0.2', 400);
   }
 }
 
@@ -202,6 +269,32 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
 
   const requestHandler = async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const q = (req as any).normalizedQuery || req.query || {};
+      const request = (q.REQUEST || q.request || '').toLowerCase();
+      const rawService = q.SERVICE ?? q.service;
+      const rawVersion = q.VERSION ?? q.version;
+
+      if (req.method === 'GET' && request) {
+        if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
+          const errRes = buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
+          res.status(errRes.status);
+          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
+          return res.send(errRes.body);
+        }
+        if (rawService === undefined) {
+          const errRes = buildExceptionResponse('MissingParameterValue', 'service', 'Missing mandatory SERVICE parameter', '2.0.0');
+          res.status(errRes.status);
+          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
+          return res.send(errRes.body);
+        }
+        if (request !== 'getcapabilities' && !rawVersion) {
+          const errRes = buildExceptionResponse('MissingParameterValue', 'version', 'Missing mandatory VERSION parameter', '2.0.0');
+          res.status(errRes.status);
+          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
+          return res.send(errRes.body);
+        }
+      }
+
       const genericReq: GenericRequest = {
         method: req.method as any,
         query: (req as any).normalizedQuery || req.query,
@@ -212,7 +305,12 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
 
       const result = await dispatchWfsRequest(genericReq, options);
 
-      res.status(result.status);
+      let status = result.status;
+      if (result.body && result.body.includes('OperationProcessingFailed') && status === 400) {
+        status = 500;
+      }
+
+      res.status(status);
       for (const [k, v] of Object.entries(result.headers)) {
         res.setHeader(k, v);
       }

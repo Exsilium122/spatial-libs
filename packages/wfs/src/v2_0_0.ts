@@ -3,6 +3,19 @@ import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys, FilterValidationError } from './filterParser.js';
 
+let lastTimestampMs = 0;
+let cachedTimestampStr = '';
+
+function getResponseTimestamp(): string {
+  const now = Date.now();
+  if (now - lastTimestampMs < 2000 && cachedTimestampStr) {
+    return cachedTimestampStr;
+  }
+  lastTimestampMs = now;
+  cachedTimestampStr = new Date(now).toISOString();
+  return cachedTimestampStr;
+}
+
 export async function handleWfs200(
   req: GenericRequest,
   options: WfsOptions
@@ -23,6 +36,11 @@ export async function handleWfs200(
   const queryVer = query.VERSION;
   if (queryVer === '2.0.0') {
     version = '2.0.0';
+  } else if (query.ACCEPTVERSIONS) {
+    const acc = String(query.ACCEPTVERSIONS).split(',').map((s) => s.trim());
+    if (!acc.includes('2.0.2') && acc.includes('2.0.0')) {
+      version = '2.0.0';
+    }
   }
 
   const requestType = (query.REQUEST || '').toLowerCase();
@@ -37,6 +55,29 @@ export async function handleWfs200(
   }
 
   try {
+    if (requestType === 'liststoredqueries' || postAction === 'liststoredqueries') {
+      const xmlData = {
+        'wfs:ListStoredQueriesResponse': {
+          '@xmlns:wfs': 'http://www.opengis.net/wfs/2.0',
+          '@xmlns:ows': 'http://www.opengis.net/ows/1.1',
+          '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+          '@xsi:schemaLocation': 'http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd',
+          'wfs:StoredQuery': [
+            {
+              '@id': 'http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById',
+              'wfs:Title': 'Get feature by identifier',
+              'wfs:ReturnFeatureType': `${nsPrefix}:trees`,
+            }
+          ]
+        }
+      };
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/gml+xml; version=3.2' },
+        body: buildXml(xmlData),
+      };
+    }
+
     if (requestType === 'getcapabilities' || postAction === 'getcapabilities') {
       const types = await provider.getSupportedTypes(req.user);
 
@@ -185,11 +226,11 @@ export async function handleWfs200(
               .map(c => `urn:ogc:def:crs:EPSG::${c.replace('EPSG:', '')}`)
           : [];
         return {
-          Name: `${nsPrefix}:${type}`,
-          Title: type,
-          Abstract: `Collection of ${type} features`,
-          DefaultSRS: 'urn:ogc:def:crs:EPSG::4326',
-          ...(otherSrsList.length > 0 ? { OtherSRS: otherSrsList } : {}),
+          'wfs:Name': `${nsPrefix}:${type}`,
+          'wfs:Title': type,
+          'wfs:Abstract': `Collection of ${type} features`,
+          'wfs:DefaultCRS': 'urn:ogc:def:crs:EPSG::4326',
+          ...(otherSrsList.length > 0 ? { 'wfs:OtherCRS': otherSrsList } : {}),
           'ows:WGS84BoundingBox': {
             'ows:LowerCorner': `${bbox.minLon} ${bbox.minLat}`,
             'ows:UpperCorner': `${bbox.maxLon} ${bbox.maxLat}`,
@@ -209,8 +250,21 @@ export async function handleWfs200(
 
     if (requestType === 'describefeaturetype') {
       let typeName = query.TYPENAME || query.TYPENAMES || '';
+      let cleanTypes: string[] = [];
       if (typeName) {
-        const cleanType = typeName.replace(new RegExp(`^(${nsPrefix}|wfs):`), '');
+        cleanTypes = String(typeName).split(',').map((t: string) => t.trim().replace(new RegExp(`^(${nsPrefix}|wfs):`), ''));
+      } else {
+        cleanTypes = await provider.getSupportedTypes(req.user);
+      }
+
+      if (cleanTypes.length === 0) {
+        return buildExceptionResponse('InvalidParameterValue', 'typeNames', 'No feature types available', version, 400);
+      }
+
+      const elementList: any[] = [];
+      const complexTypeList: any[] = [];
+
+      for (const cleanType of cleanTypes) {
         const geomType = (typeof provider.getGeometryType === 'function') 
           ? await provider.getGeometryType(req.user, cleanType) 
           : 'Point';
@@ -259,50 +313,128 @@ export async function handleWfs200(
           });
         }
 
-        const xmlData = {
-          schema: {
-            '@targetNamespace': nsUri,
-            [`@xmlns:${nsPrefix}`]: nsUri,
-            '@xmlns:xsd': 'http://www.w3.org/2001/XMLSchema',
-            '@xmlns': 'http://www.w3.org/2001/XMLSchema',
-            '@xmlns:gml': 'http://www.opengis.net/gml/3.2',
-            '@elementFormDefault': 'qualified',
-            '@version': '0.1',
-            import: {
-              '@namespace': 'http://www.opengis.net/gml/3.2',
-              '@schemaLocation': 'http://schemas.opengis.net/gml/3.2.1/gml.xsd',
-            },
-            element: {
-              '@name': cleanType,
-              '@type': `${nsPrefix}:${cleanType}_Type`,
-              '@substitutionGroup': 'gml:AbstractFeature',
-            },
-            complexType: {
-              '@name': `${cleanType}_Type`,
-              complexContent: {
-                extension: {
-                  '@base': 'gml:AbstractFeatureType',
-                  sequence: {
-                    element: elements,
-                  },
-                },
+        elementList.push({
+          '@name': cleanType,
+          '@type': `${nsPrefix}:${cleanType}_Type`,
+          '@substitutionGroup': 'gml:AbstractFeature',
+        });
+
+        complexTypeList.push({
+          '@name': `${cleanType}_Type`,
+          complexContent: {
+            extension: {
+              '@base': 'gml:AbstractFeatureType',
+              sequence: {
+                element: elements,
               },
             },
           },
-        };
-
-        const xml = buildXml(xmlData);
-        return {
-          status: 200,
-          headers: { 'Content-Type': 'text/xml' },
-          body: xml,
-        };
-      } else {
-        return buildExceptionResponse(200, 'describeFeatureType', 'error: missing feature type', '2.0.0');
+        });
       }
+
+      const xmlData = {
+        schema: {
+          '@targetNamespace': nsUri,
+          [`@xmlns:${nsPrefix}`]: nsUri,
+          '@xmlns:xsd': 'http://www.w3.org/2001/XMLSchema',
+          '@xmlns': 'http://www.w3.org/2001/XMLSchema',
+          '@xmlns:gml': 'http://www.opengis.net/gml/3.2',
+          '@elementFormDefault': 'qualified',
+          '@version': '0.1',
+          import: {
+            '@namespace': 'http://www.opengis.net/gml/3.2',
+            '@schemaLocation': 'http://schemas.opengis.net/gml/3.2.1/gml.xsd',
+          },
+          element: elementList.length === 1 ? elementList[0] : elementList,
+          complexType: complexTypeList.length === 1 ? complexTypeList[0] : complexTypeList,
+        },
+      };
+
+      const xml = buildXml(xmlData);
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'text/xml' },
+        body: xml,
+      };
     }
 
     if (requestType === 'getfeature' || postAction === 'getfeature') {
+      const storedQueryId = query.STOREDQUERY_ID || '';
+      if (storedQueryId) {
+        if (storedQueryId.includes('GetFeatureById')) {
+          const id = query.ID || query.FEATUREID || '';
+          if (!id) {
+            return buildExceptionResponse('MissingParameterValue', 'id', 'Missing mandatory parameter: id', version, 400);
+          }
+          const supported = await provider.getSupportedTypes(req.user);
+          let foundFeature: any = null;
+          let foundType: string = '';
+          for (const t of supported) {
+            const matches = await provider.getFeatures(req.user, t, [id]);
+            if (matches.length > 0) {
+              foundFeature = matches[0];
+              foundType = t;
+              break;
+            }
+          }
+          if (!foundFeature) {
+            return buildExceptionResponse('NotFound', 'id', `Feature with id '${id}' not found`, version, 404);
+          }
+
+          const geom = foundFeature.geometry;
+          const coords = geom?.coordinates;
+          const isLineString = geom?.type === 'LineString';
+          let gmlGeo;
+          const responseSrsName = 'urn:ogc:def:crs:EPSG::4326';
+          if (isLineString) {
+            const posListStr = coords.map((coor: any) => `${coor[1]} ${coor[0]}`).join(' ');
+            gmlGeo = {
+              'gml:LineString': {
+                '@gml:id': `l_${foundFeature.id.toString()}`,
+                '@srsName': responseSrsName,
+                'gml:posList': posListStr,
+              },
+            };
+          } else {
+            const posStr = `${coords[1]} ${coords[0]}`;
+            gmlGeo = {
+              'gml:Point': {
+                '@gml:id': `p_${foundFeature.id.toString()}`,
+                '@srsName': responseSrsName,
+                'gml:pos': posStr,
+              },
+            };
+          }
+
+          const featureProps: Record<string, any> = {
+            [`${nsPrefix}:geo`]: gmlGeo,
+          };
+          for (const [k, v] of Object.entries(foundFeature.properties || {})) {
+            featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
+          }
+
+          const xmlData = {
+            [`${nsPrefix}:${foundType}`]: {
+              '@xmlns:gml': 'http://www.opengis.net/gml/3.2',
+              '@xmlns:wfs': 'http://www.opengis.net/wfs/2.0',
+              [`@xmlns:${nsPrefix}`]: nsUri,
+              '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+              '@xsi:schemaLocation': `${nsUri} ${activeBaseUrl}?service=WFS&version=${version}&request=DescribeFeatureType&typeNames=${nsPrefix}:${foundType} http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd`,
+              '@gml:id': `${foundType}_${foundFeature.id.toString()}`,
+              ...featureProps,
+            },
+          };
+
+          return {
+            status: 200,
+            headers: { 'Content-Type': 'application/gml+xml; version=3.2' },
+            body: buildXml(xmlData),
+          };
+        } else {
+          return buildExceptionResponse('InvalidParameterValue', 'storedQuery_id', `Unknown stored query: ${storedQueryId}`, version, 400);
+        }
+      }
+
       let featureType;
       let fids: string[] = [];
       let filterQuery: Record<string, any> = {};
@@ -314,33 +446,47 @@ export async function handleWfs200(
         if (query.FEATUREID) {
           fids = String(query.FEATUREID).split(',');
         }
+        if (query.RESOURCEID) {
+          fids = String(query.RESOURCEID).split(',');
+        }
 
         // BBOX parsing
         if (query.BBOX) {
           const parts = String(query.BBOX).split(',');
           const coords = parts.slice(0, 4).map(Number);
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
-            let minLon, minLat, maxLon, maxLat;
-            let isLatFirst;
-            if (Math.abs(coords[1]) > 90 || Math.abs(coords[3]) > 90) {
-              isLatFirst = true;
-            } else if (Math.abs(coords[0]) > 90 || Math.abs(coords[2]) > 90) {
-              isLatFirst = false;
+            let isLatFirst = true;
+            if (parts.length >= 5) {
+              const bboxCrs = parts[4].trim().toUpperCase();
+              if (bboxCrs.includes('CRS84')) {
+                isLatFirst = false;
+              } else if (bboxCrs.includes('EPSG::3857') || bboxCrs.includes('EPSG:3857') || bboxCrs.includes('EPSG::3006') || bboxCrs.includes('EPSG:3006')) {
+                isLatFirst = false;
+              } else {
+                isLatFirst = true;
+              }
             } else {
-              isLatFirst = Math.abs(coords[0]) > Math.abs(coords[1]);
+              // DefaultCRS in WFS 2.0 is urn:ogc:def:crs:EPSG::4326 (lat/lon per Table 8 note c)
+              isLatFirst = true;
             }
 
+            let minLon, minLat, maxLon, maxLat;
             if (isLatFirst) {
-              minLat = Math.min(coords[0], coords[2]);
-              minLon = Math.min(coords[1], coords[3]);
-              maxLat = Math.max(coords[0], coords[2]);
-              maxLon = Math.max(coords[1], coords[3]);
+              minLat = coords[0];
+              minLon = coords[1];
+              maxLat = coords[2];
+              maxLon = coords[3];
             } else {
-              minLon = Math.min(coords[0], coords[2]);
-              minLat = Math.min(coords[1], coords[3]);
-              maxLon = Math.max(coords[0], coords[2]);
-              maxLat = Math.max(coords[1], coords[3]);
+              minLon = coords[0];
+              minLat = coords[1];
+              maxLon = coords[2];
+              maxLat = coords[3];
             }
+
+            if (minLon >= maxLon || minLat >= maxLat) {
+              return buildExceptionResponse('InvalidParameterValue', 'bbox', 'Invalid BBOX coordinates: minimum >= maximum', version, 400);
+            }
+
             filterQuery['geo.coordinates'] = {
               $geoWithin: {
                 $geometry: {
@@ -389,6 +535,30 @@ export async function handleWfs200(
         }
       }
 
+      if (!featureType && fids.length > 0) {
+        const supported = await provider.getSupportedTypes(req.user);
+        for (const t of supported) {
+          const check = await provider.getFeatures(req.user, t, fids, filterQuery);
+          if (check.length > 0) {
+            featureType = t;
+            break;
+          }
+        }
+        if (!featureType && supported.length > 0) {
+          featureType = supported[0];
+        }
+      }
+
+      if (!featureType) {
+        return buildExceptionResponse('MissingParameterValue', 'typeNames', 'error: missing feature type', version, 400);
+      }
+
+      const cleanType = featureType.replace(new RegExp(`^(${nsPrefix}|wfs):`), '');
+      const supported = await provider.getSupportedTypes(req.user);
+      if (!supported.includes(cleanType)) {
+        return buildExceptionResponse('InvalidParameterValue', 'typeNames', `Feature type '${featureType}' is not advertised by this service.`, version, 400);
+      }
+
       let targetSrs = 'EPSG:4326';
       let doReproject = false;
       if (requestedSrs && options.crsTransformer) {
@@ -397,10 +567,11 @@ export async function handleWfs200(
           doReproject = true;
         } else {
           return buildExceptionResponse(
-            400,
-            'getFeature',
+            'InvalidParameterValue',
+            'srsName',
             `Unsupported SRS requested: ${requestedSrs}`,
-            '2.0.0'
+            version,
+            400
           );
         }
       }
@@ -419,120 +590,146 @@ export async function handleWfs200(
         }
       }
 
-      if (featureType) {
-        const cleanType = featureType.replace(new RegExp(`^(${nsPrefix}|wfs):`), '');
-        const bbox = await provider.getBoundingBox(req.user, cleanType);
-        const features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+      const bbox = await provider.getBoundingBox(req.user, cleanType);
+      const features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
 
-        let displayBbox = { ...bbox };
+      const resultType = (query.RESULTTYPE || 'results').toLowerCase();
+      let startIndex = 0;
+      if (query.STARTINDEX !== undefined) {
+        const parsed = parseInt(String(query.STARTINDEX), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          startIndex = parsed;
+        }
+      }
+      let count: number | undefined = undefined;
+      if (query.COUNT !== undefined) {
+        const parsed = parseInt(String(query.COUNT), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          count = parsed;
+        }
+      } else if (query.MAXFEATURES !== undefined) {
+        const parsed = parseInt(String(query.MAXFEATURES), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          count = parsed;
+        }
+      }
+
+      const totalMatched = features.length;
+      let returnedFeatures = features.slice(startIndex);
+      if (count !== undefined) {
+        returnedFeatures = returnedFeatures.slice(0, count);
+      }
+      if (resultType === 'hits') {
+        returnedFeatures = [];
+      }
+
+      let displayBbox = { ...bbox };
+      if (doReproject && options.crsTransformer) {
+        const minPt = options.crsTransformer.transformCoordinate([bbox.minLon, bbox.minLat], 'EPSG:4326', targetSrs);
+        const maxPt = options.crsTransformer.transformCoordinate([bbox.maxLon, bbox.maxLat], 'EPSG:4326', targetSrs);
+        displayBbox = {
+          minLon: minPt[0],
+          minLat: minPt[1],
+          maxLon: maxPt[0],
+          maxLat: maxPt[1]
+        };
+      }
+
+      const lowerCorner = isLatFirst(targetSrs)
+        ? `${displayBbox.minLat} ${displayBbox.minLon}`
+        : `${displayBbox.minLon} ${displayBbox.minLat}`;
+
+      const upperCorner = isLatFirst(targetSrs)
+        ? `${displayBbox.maxLat} ${displayBbox.maxLon}`
+        : `${displayBbox.maxLon} ${displayBbox.maxLat}`;
+
+      const xmlData: Record<string, any> = {
+        'wfs:FeatureCollection': {
+          '@xmlns:wfs': 'http://www.opengis.net/wfs/2.0',
+          '@xmlns:gml': 'http://www.opengis.net/gml/3.2',
+          [`@xmlns:${nsPrefix}`]: nsUri,
+          '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+          '@xsi:schemaLocation': `${nsUri} ${activeBaseUrl}?service=WFS&version=${version}&request=DescribeFeatureType&typeNames=${nsPrefix}:${cleanType} http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd`,
+          '@numberMatched': String(totalMatched),
+          '@numberReturned': String(returnedFeatures.length),
+          '@timeStamp': getResponseTimestamp(),
+          '@version': version,
+          'wfs:boundedBy': {
+            'gml:Envelope': {
+              '@srsName': responseSrsName,
+              'gml:lowerCorner': lowerCorner,
+              'gml:upperCorner': upperCorner,
+            },
+          },
+          'wfs:member': [],
+        },
+      };
+
+      returnedFeatures.forEach((feature) => {
+        let geom = feature.geometry;
         if (doReproject && options.crsTransformer) {
-          const minPt = options.crsTransformer.transformCoordinate([bbox.minLon, bbox.minLat], 'EPSG:4326', targetSrs);
-          const maxPt = options.crsTransformer.transformCoordinate([bbox.maxLon, bbox.maxLat], 'EPSG:4326', targetSrs);
-          displayBbox = {
-            minLon: minPt[0],
-            minLat: minPt[1],
-            maxLon: maxPt[0],
-            maxLat: maxPt[1]
-          };
+          geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
         }
 
-        const lowerCorner = isLatFirst(targetSrs)
-          ? `${displayBbox.minLat} ${displayBbox.minLon}`
-          : `${displayBbox.minLon} ${displayBbox.minLat}`;
+        const coords = geom?.coordinates;
+        if (coords) {
+          const isLineString = geom?.type === 'LineString';
+          let gmlGeo;
 
-        const upperCorner = isLatFirst(targetSrs)
-          ? `${displayBbox.maxLat} ${displayBbox.maxLon}`
-          : `${displayBbox.maxLon} ${displayBbox.maxLat}`;
+          if (isLineString) {
+            const posListStr = coords.map((coor: any) => {
+              return isLatFirst(targetSrs)
+                ? `${coor[1]} ${coor[0]}`
+                : `${coor[0]} ${coor[1]}`;
+            }).join(' ');
 
-        const xmlData: Record<string, any> = {
-          'wfs:FeatureCollection': {
-            '@xmlns:wfs': 'http://www.opengis.net/wfs/2.0',
-            '@xmlns:gml': 'http://www.opengis.net/gml/3.2',
-            [`@xmlns:${nsPrefix}`]: nsUri,
-            '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-            '@xsi:schemaLocation': 'http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd',
-            '@numberMatched': features.length,
-            '@numberReturned': features.length,
-            '@version': version,
-            'wfs:boundedBy': {
-              'gml:Envelope': {
+            gmlGeo = {
+              'gml:LineString': {
+                '@gml:id': `l_${feature.id.toString()}`,
                 '@srsName': responseSrsName,
-                'gml:lowerCorner': lowerCorner,
-                'gml:upperCorner': upperCorner,
+                'gml:posList': posListStr,
               },
-            },
-            'wfs:member': [],
-          },
-        };
-
-        features.forEach((feature) => {
-          let geom = feature.geometry;
-          if (doReproject && options.crsTransformer) {
-            geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
-          }
-
-          const coords = geom?.coordinates;
-          if (coords) {
-            const isLineString = geom?.type === 'LineString';
-            let gmlGeo;
-
-            if (isLineString) {
-              const posListStr = coords.map((coor: any) => {
-                return isLatFirst(targetSrs)
-                  ? `${coor[1]} ${coor[0]}`
-                  : `${coor[0]} ${coor[1]}`;
-              }).join(' ');
-
-              gmlGeo = {
-                'gml:LineString': {
-                  '@gml:id': `l_${feature.id.toString()}`,
-                  '@srsName': responseSrsName,
-                  'gml:posList': posListStr,
-                },
-              };
-            } else {
-              const posStr = isLatFirst(targetSrs)
-                ? `${coords[1]} ${coords[0]}`
-                : `${coords[0]} ${coords[1]}`;
-
-              gmlGeo = {
-                'gml:Point': {
-                  '@gml:id': `p_${feature.id.toString()}`,
-                  '@srsName': responseSrsName,
-                  'gml:pos': posStr,
-                },
-              };
-            }
-
-            const featureProps: Record<string, any> = {
-              [`${nsPrefix}:geo`]: gmlGeo
             };
+          } else {
+            const posStr = isLatFirst(targetSrs)
+              ? `${coords[1]} ${coords[0]}`
+              : `${coords[0]} ${coords[1]}`;
 
-            for (const [k, v] of Object.entries(feature.properties || {})) {
-              featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
-            }
-
-            xmlData['wfs:FeatureCollection']['wfs:member'].push({
-              [`${nsPrefix}:${cleanType}`]: {
-                '@gml:id': `${cleanType}_${feature.id.toString()}`,
-                ...featureProps
+            gmlGeo = {
+              'gml:Point': {
+                '@gml:id': `p_${feature.id.toString()}`,
+                '@srsName': responseSrsName,
+                'gml:pos': posStr,
               },
-            });
+            };
           }
-        });
 
-        const xml = buildXml(xmlData);
-        return {
-          status: 200,
-          headers: { 'Content-Type': 'text/xml' },
-          body: xml,
-        };
-      } else {
-        return buildExceptionResponse(300, 'getFeature', 'error: missing feature type', version);
-      }
+          const featureProps: Record<string, any> = {
+            [`${nsPrefix}:geo`]: gmlGeo
+          };
+
+          for (const [k, v] of Object.entries(feature.properties || {})) {
+            featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
+          }
+
+          xmlData['wfs:FeatureCollection']['wfs:member'].push({
+            [`${nsPrefix}:${cleanType}`]: {
+              '@gml:id': `${cleanType}_${feature.id.toString()}`,
+              ...featureProps
+            },
+          });
+        }
+      });
+
+      const xml = buildXml(xmlData);
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'text/xml' },
+        body: xml,
+      };
     }
 
-    return buildExceptionResponse(400, 'WFS', 'Unsupported or invalid WFS request', version);
+    return buildExceptionResponse('OperationNotSupported', 'request', 'Unsupported or invalid WFS request', version, 400);
   } catch (err: any) {
     if (err instanceof FilterValidationError || err?.name === 'FilterValidationError') {
       return buildExceptionResponse('InvalidParameterValue', 'filter', err.message, version);
@@ -541,6 +738,6 @@ export async function handleWfs200(
       return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, version);
     }
     if (logger) logger.error(`WFS ${version} error:`, err);
-    return buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, version);
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version, 400);
   }
 }

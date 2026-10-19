@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import CrsTransformer from '../../../crs/src/index.js';
-import { findAll, gap, RecordingProvider, startWfs, WfsResponse, WfsServer } from './helpers.js';
+import { findAll, RecordingProvider, startWfs, WfsResponse, WfsServer } from './helpers.js';
 
 /**
  * OGC Web Feature Service 2.0 Interface Standard, version 2.0.2 (OGC 09-025r2 / ISO 19142)
@@ -56,12 +56,12 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(res.doc['wfs:WFS_Capabilities']['@version']).toBe('2.0.2');
     });
 
-    gap('[GAP] §6.2.3: AcceptVersions=2.0.0,1.1.0 is answered with 2.0.0 (the response says 2.0.2)', async () => {
+    it('[GAP] §6.2.3: AcceptVersions=2.0.0,1.1.0 is answered with 2.0.0 (the response says 2.0.2)', async () => {
       const res = await wfs.get('service=WFS&request=GetCapabilities&AcceptVersions=2.0.0,1.1.0');
       expect(res.doc['wfs:WFS_Capabilities']['@version']).toBe('2.0.0');
     });
 
-    gap('[GAP] §6.2.2: a request (other than GetCapabilities) with an unsupported version raises InvalidParameterValue', async () => {
+    it('[GAP] §6.2.2: a request (other than GetCapabilities) with an unsupported version raises InvalidParameterValue', async () => {
       const res = await wfs.get('service=WFS&version=3.0.0&request=GetFeature&typeNames=ns:trees');
       expect(exception(res).code).toBe('InvalidParameterValue');
     });
@@ -109,7 +109,7 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(res.body).toContain('OperationParsingFailed');
     });
 
-    gap('[GAP] OWS Table 25: a missing mandatory parameter (TYPENAMES) is MissingParameterValue, not code "300"', async () => {
+    it('[GAP] OWS Table 25: a missing mandatory parameter (TYPENAMES) is MissingParameterValue, not code "300"', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature`);
       expect(res.status).toBe(400);
       expect(exception(res).code).toBe('MissingParameterValue');
@@ -121,12 +121,12 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(exception(res).text).toContain('Unsupported or invalid WFS request');
     });
 
-    gap('[GAP] OWS Table 25: an operation the server does not offer is OperationNotSupported', async () => {
+    it('[GAP] OWS Table 25: an operation the server does not offer is OperationNotSupported', async () => {
       const res = await wfs.get(`${KVP}&request=Transaction`);
       expect(exception(res).code).toBe('OperationNotSupported');
     });
 
-    gap('[GAP] Table 3: a processing failure in the data store is OperationProcessingFailed with a 5xx/403 status', async () => {
+    it('[GAP] Table 3: a processing failure in the data store is OperationProcessingFailed with a 5xx/403 status', async () => {
       provider.failWith = new Error('connection to db-internal:5432 refused');
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees`);
       expect(res.body).not.toContain('db-internal');
@@ -136,35 +136,35 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
   });
 
   describe('§7.6.2 Base request parameters', () => {
-    gap('[GAP] §7.6.2.4: SERVICE is mandatory; omitting it is MissingParameterValue', async () => {
+    it('[GAP] §7.6.2.4: SERVICE is mandatory; omitting it is MissingParameterValue', async () => {
       const res = await wfs.get('version=2.0.2&request=GetFeature&typeNames=ns:trees');
       expect(exception(res).code).toBe('MissingParameterValue');
     });
 
-    gap('[GAP] §7.6.2.4: SERVICE other than "WFS" is InvalidParameterValue', async () => {
+    it('[GAP] §7.6.2.4: SERVICE other than "WFS" is InvalidParameterValue', async () => {
       const res = await wfs.get('service=WMS&version=2.0.2&request=GetFeature&typeNames=ns:trees');
       expect(exception(res).code).toBe('InvalidParameterValue');
     });
 
-    gap('[GAP] §7.6.2.5: VERSION is mandatory for every operation except GetCapabilities', async () => {
+    it('[GAP] §7.6.2.5: VERSION is mandatory for every operation except GetCapabilities', async () => {
       const res = await wfs.get('service=WFS&request=GetFeature&typeNames=ns:trees');
       expect(exception(res).code).toBe('MissingParameterValue');
     });
   });
 
   describe('§7.6.3 Standard presentation parameters', () => {
-    gap('[GAP] §7.6.3.5: COUNT limits the number of features presented', async () => {
+    it('[GAP] §7.6.3.5: COUNT limits the number of features presented', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees&count=2`);
       expect(members(res)).toHaveLength(2);
       expect(res.doc['wfs:FeatureCollection']['@numberReturned']).toBe('2');
     });
 
-    gap('[GAP] §7.6.3.4: STARTINDEX starts presenting results at that index (0-based)', async () => {
+    it('[GAP] §7.6.3.4: STARTINDEX starts presenting results at that index (0-based)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees&startIndex=1`);
       expect(findAll(res.doc, '@gml:id').filter((id: string) => id.startsWith('trees_'))).toEqual(['trees_t2', 'trees_t3']);
     });
 
-    gap('[GAP] §7.6.3.6: RESULTTYPE=hits returns no members, numberReturned=0 and the total in numberMatched', async () => {
+    it('[GAP] §7.6.3.6: RESULTTYPE=hits returns no members, numberReturned=0 and the total in numberMatched', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees&resultType=hits`);
       const fc = res.doc['wfs:FeatureCollection'];
       expect(members(res)).toHaveLength(0);
@@ -196,12 +196,12 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(res.doc['wfs:FeatureCollection']['@numberMatched']).toBe('1');
     });
 
-    gap('[GAP] §7.7.4.1: timeStamp reports when the response collection was generated (required by wfs.xsd)', async () => {
+    it('[GAP] §7.7.4.1: timeStamp reports when the response collection was generated (required by wfs.xsd)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees`);
       expect(Date.parse(res.doc['wfs:FeatureCollection']['@timeStamp'])).not.toBeNaN();
     });
 
-    gap('[GAP] §7.8: the response references the GML application schema (DescribeFeatureType) in xsi:schemaLocation', async () => {
+    it('[GAP] §7.8: the response references the GML application schema (DescribeFeatureType) in xsi:schemaLocation', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees`);
       expect(res.doc['wfs:FeatureCollection']['@xsi:schemaLocation']).toContain('DescribeFeatureType');
     });
@@ -217,13 +217,13 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
   });
 
   describe('§7.9.2 Ad hoc query expressions (KVP and XML)', () => {
-    gap('[GAP] §7.9.2.3: RESOURCEID selects features by identifier (TYPENAMES may be omitted)', async () => {
+    it('[GAP] §7.9.2.3: RESOURCEID selects features by identifier (TYPENAMES may be omitted)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&resourceId=t2`);
       expect(res.status).toBe(200);
       expect(provider.lastCall()?.fids).toEqual(['t2']);
     });
 
-    gap('[GAP] §7.9.2.4.1: a TYPENAMES value not advertised in the capabilities is InvalidParameterValue', async () => {
+    it('[GAP] §7.9.2.4.1: a TYPENAMES value not advertised in the capabilities is InvalidParameterValue', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:unknown`);
       expect(exception(res).code).toBe('InvalidParameterValue');
     });
@@ -256,7 +256,7 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
         expect(bboxRing(provider)[0]).toEqual([10, 50]);
       });
 
-      gap('[GAP] Table 8 note c: a BBOX without CRS suffix is in the DefaultCRS (urn:ogc:def:crs:EPSG::4326, lat/lon)', async () => {
+      it('[GAP] Table 8 note c: a BBOX without CRS suffix is in the DefaultCRS (urn:ogc:def:crs:EPSG::4326, lat/lon)', async () => {
         await wfs.get(`${KVP}&request=GetFeature&typeNames=ns:trees&bbox=10,50,12,52`);
         // Read as lat 10..12 / lon 50..52 in the advertised lat/lon DefaultCRS.
         expect(bboxRing(provider)[0]).toEqual([50, 10]);
@@ -292,19 +292,19 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
   });
 
   describe('§7.9.3.6 GetFeatureById stored query (mandatory for every server)', () => {
-    gap('[GAP] STOREDQUERY_ID=http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById&ID=t1 returns that single feature', async () => {
+    it('[GAP] STOREDQUERY_ID=http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById&ID=t1 returns that single feature', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&storedQuery_id=${encodeURIComponent('http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById')}&id=t1`);
       expect(res.status).toBe(200);
       expect(res.doc['ns:trees']?.['@gml:id']).toBe('trees_t1');
     });
 
-    gap('[GAP] Table 3 / D.2: GetFeatureById for an unknown identifier is NotFound with HTTP 404', async () => {
+    it('[GAP] Table 3 / D.2: GetFeatureById for an unknown identifier is NotFound with HTTP 404', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&storedQuery_id=${encodeURIComponent('http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById')}&id=nope`);
       expect(res.status).toBe(404);
       expect(exception(res).code).toBe('NotFound');
     });
 
-    gap('[GAP] Simple WFS conformance: ListStoredQueries is offered and lists GetFeatureById', async () => {
+    it('[GAP] Simple WFS conformance: ListStoredQueries is offered and lists GetFeatureById', async () => {
       const res = await wfs.get(`${KVP}&request=ListStoredQueries`);
       expect(res.body).toContain('GetFeatureById');
     });
@@ -335,7 +335,7 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(res.body).toContain('urn:ogc:def:crs:EPSG::3857');
     });
 
-    gap('[GAP] §8.3.4: FeatureType children are wfs:Name / wfs:DefaultCRS / wfs:OtherCRS (WFS 2.0 names, in the wfs namespace)', async () => {
+    it('[GAP] §8.3.4: FeatureType children are wfs:Name / wfs:DefaultCRS / wfs:OtherCRS (WFS 2.0 names, in the wfs namespace)', async () => {
       const caps = (await crs.get(`${KVP}&request=GetCapabilities`)).doc['wfs:WFS_Capabilities'];
       const [first] = [caps['wfs:FeatureTypeList']['wfs:FeatureType']].flat();
       expect(first['wfs:Name']).toBe('trees-ns:trees');
@@ -365,7 +365,7 @@ describe('WFS 2.0.2 (OGC 09-025r2)', () => {
       expect(res.body).toContain('gml:CurvePropertyType');
     });
 
-    gap('[GAP] §9.2.4.1: without TYPENAMES the complete application schema (all types) is returned', async () => {
+    it('[GAP] §9.2.4.1: without TYPENAMES the complete application schema (all types) is returned', async () => {
       const res = await wfs.get(`${KVP}&request=DescribeFeatureType`);
       expect(res.status).toBe(200);
       expect(res.body).toContain('name="trees"');

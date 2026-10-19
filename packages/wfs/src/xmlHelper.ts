@@ -10,7 +10,7 @@ const builder = new XMLBuilder({
 
 const parser = new XMLParser({
   removeNSPrefix: true,
-  ignoreAttributes: true,
+  ignoreAttributes: false,
 });
 
 export function buildXml(xmlData: Record<string, any>): string {

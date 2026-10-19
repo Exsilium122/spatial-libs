@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { findAll, gap, RecordingProvider, startWfs, WfsServer } from './helpers.js';
+import { findAll, RecordingProvider, startWfs, WfsServer } from './helpers.js';
 
 /**
  * OpenGIS Web Feature Service Implementation Specification 1.0.0 (OGC 02-058)
@@ -41,12 +41,12 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(res.doc.WFS_Capabilities['@version']).toBe('1.0.0');
     });
 
-    gap('[GAP] rule 2: an unknown version between known versions (1.5.0) is answered with the highest lower version (1.1.0)', async () => {
+    it('[GAP] rule 2: an unknown version between known versions (1.5.0) is answered with the highest lower version (1.1.0)', async () => {
       const res = await wfs.get('service=WFS&request=GetCapabilities&version=1.5.0');
       expect(res.doc.WFS_Capabilities['@version']).toBe('1.1.0');
     });
 
-    gap('[GAP] rule 2: a version above every known version (3.0.0) is answered with the highest version (2.0.2)', async () => {
+    it('[GAP] rule 2: a version above every known version (3.0.0) is answered with the highest version (2.0.2)', async () => {
       const res = await wfs.get('service=WFS&request=GetCapabilities&version=3.0.0');
       expect(res.doc['wfs:WFS_Capabilities']?.['@version']).toBe('2.0.2');
     });
@@ -67,7 +67,7 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(report.ServiceException).toBeDefined();
     });
 
-    gap('[GAP] the exception report references the WFS 1.0.0 exception schema (OGC-exception.xsd)', async () => {
+    it('[GAP] the exception report references the WFS 1.0.0 exception schema (OGC-exception.xsd)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature`);
       expect(res.doc.ServiceExceptionReport['@xsi:schemaLocation']).toMatch(/wfs\/1\.0\.0\/OGC-exception\.xsd$/);
     });
@@ -118,7 +118,7 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(caps['ogc:Filter_Capabilities']['ogc:Spatial_Capabilities']['ogc:Spatial_Operators']).toHaveProperty('ogc:BBOX');
     });
 
-    gap('[GAP] every operation reachable over KVP advertises an HTTP Get DCPType (GetFeature only advertises Post)', async () => {
+    it('[GAP] every operation reachable over KVP advertises an HTTP Get DCPType (GetFeature only advertises Post)', async () => {
       const caps = (await wfs.get(`${KVP}&request=GetCapabilities`)).doc.WFS_Capabilities;
       expect(caps.Capability.Request.GetFeature.DCPType.HTTP.Get).toBeDefined();
     });
@@ -134,13 +134,13 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(findAll(schema, '@name')).toEqual(expect.arrayContaining(['name', 'height']));
     });
 
-    gap('[GAP] without TYPENAME every feature type is described', async () => {
+    it('[GAP] without TYPENAME every feature type is described', async () => {
       const res = await wfs.get(`${KVP}&request=DescribeFeatureType`);
       expect(res.status).toBe(200);
       expect(findAll(res.doc, '@name')).toEqual(expect.arrayContaining(['trees', 'roads']));
     });
 
-    gap('[GAP] a comma-separated TYPENAME list describes each listed feature type', async () => {
+    it('[GAP] a comma-separated TYPENAME list describes each listed feature type', async () => {
       const res = await wfs.get(`${KVP}&request=DescribeFeatureType&typeName=ns:trees,ns:roads`);
       expect(findAll(res.doc, '@name')).toEqual(expect.arrayContaining(['trees', 'roads']));
     });
@@ -154,7 +154,7 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(provider.calls).toHaveLength(0);
     });
 
-    gap('[GAP] TYPENAME is optional when FEATUREID is given', async () => {
+    it('[GAP] TYPENAME is optional when FEATUREID is given', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&featureId=t2`);
       expect(res.status).toBe(200);
       expect(res.body).toContain('fid="t2"');
@@ -166,12 +166,12 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(findAll(res.doc, '@fid')).toEqual(['t1', 't3']);
     });
 
-    gap('[GAP] MAXFEATURES=N limits the number of features returned', async () => {
+    it('[GAP] MAXFEATURES=N limits the number of features returned', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&maxFeatures=1`);
       expect(findAll(res.doc, 'gml:featureMember')).toHaveLength(1);
     });
 
-    gap('[GAP] PROPERTYNAME restricts the properties returned', async () => {
+    it('[GAP] PROPERTYNAME restricts the properties returned', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&propertyName=name`);
       expect(res.body).toContain('<ns:name>');
       expect(res.body).not.toContain('<ns:height>');
@@ -203,12 +203,12 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(bboxRing(provider)[1]).toEqual([190, -10]);
     });
 
-    gap('[GAP] values are always minx (longitude), miny (latitude): 50,10,52,12 is not re-ordered as latitude-first', async () => {
+    it('[GAP] values are always minx (longitude), miny (latitude): 50,10,52,12 is not re-ordered as latitude-first', async () => {
       await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=50,10,52,12`);
       expect(bboxRing(provider)[0]).toEqual([50, 10]);
     });
 
-    gap('[GAP] an invalid box (minimum X >= maximum X, or minimum Y >= maximum Y) raises an exception', async () => {
+    it('[GAP] an invalid box (minimum X >= maximum X, or minimum Y >= maximum Y) raises an exception', async () => {
       for (const bbox of ['12,50,10,52', '10,52,12,50', '10,50,10,52']) {
         const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=${bbox}`);
         expect(res.doc.ServiceExceptionReport, bbox).toBeDefined();
@@ -233,7 +233,7 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
       expect(res.body).toContain('<gml:coordinates>10.1,50.1 10.2,50.2 10.3,50.3</gml:coordinates>');
     });
 
-    gap('[GAP] the root element is wfs:FeatureCollection (in the http://www.opengis.net/wfs namespace)', async () => {
+    it('[GAP] the root element is wfs:FeatureCollection (in the http://www.opengis.net/wfs namespace)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees`);
       const root = res.doc['wfs:FeatureCollection'] ?? res.doc.FeatureCollection;
       expect(res.doc['wfs:FeatureCollection'] ?? (root['@xmlns'] === 'http://www.opengis.net/wfs' ? root : undefined)).toBeDefined();

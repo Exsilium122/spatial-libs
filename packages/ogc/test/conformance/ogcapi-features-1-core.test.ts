@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { gap, MemoryProvider, OgcServer, pointFeatures, startOgc } from './helpers.js';
+import { MemoryProvider, OgcServer, pointFeatures, startOgc } from './helpers.js';
 
 /**
  * OGC API - Features - Part 1: Core (OGC 17-069r4, corrigendum 1.0.1)
@@ -98,8 +98,8 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
   });
 
   describe('7.6 Unknown or invalid query parameters', () => {
-    gap(
-      '[GAP] /req/core/query-param-unknown A: a query parameter not in the API definition yields 400 (or the API definition declares free-form parameters)',
+    it(
+      '/req/core/query-param-unknown A: a query parameter not in the API definition yields 400 (or the API definition declares free-form parameters)',
       async () => {
         const res = await ogc.get('/collections/forests/items?unknownParameter=1');
         if (res.status === 200) {
@@ -113,7 +113,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
     );
 
     // Invalid limit values are currently replaced by the default instead (see security.test.ts).
-    gap.each(['0', '-1', 'abc', '1.5'])('[GAP] /req/core/query-param-invalid A: limit=%s yields 400', async (limit) => {
+    it.each(['0', '-1', 'abc', '1.5'])('/req/core/query-param-invalid A: limit=%s yields 400', async (limit) => {
       expect((await ogc.get(`/collections/forests/items?limit=${limit}`)).status).toBe(400);
     });
 
@@ -192,7 +192,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
       expect(single.links).toEqual(expect.arrayContaining(entry.links));
     });
 
-    gap('[GAP] /req/core/sfc-md-success B: description is identical to the /collections entry', async () => {
+    it('/req/core/sfc-md-success B: description is identical to the /collections entry', async () => {
       const { body: list } = await ogc.json('/collections');
       const { body: single } = await ogc.json('/collections/forests');
       expect(single.description).toBe(list.collections.find((c: any) => c.id === 'forests').description);
@@ -237,11 +237,11 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
         expect((await ogc.get('/collections/forests/items?bbox=11,51,11,51')).status).toBe(200);
       });
 
-      gap('[GAP] /req/core/fc-bbox-definition A/B/D: six numbers (box with a vertical axis, CRS84h) are accepted', async () => {
+      it('/req/core/fc-bbox-definition A/B/D: six numbers (box with a vertical axis, CRS84h) are accepted', async () => {
         expect((await ogc.get('/collections/forests/items?bbox=10,50,0,12,52,100')).status).toBe(200);
       });
 
-      gap('[GAP] /req/core/fc-bbox-response: a box spanning the anti-meridian (west > east) selects across ±180°', async () => {
+      it('/req/core/fc-bbox-response: a box spanning the anti-meridian (west > east) selects across ±180°', async () => {
         const res = await ogc.get('/collections/forests/items?bbox=170,-10,-170,10');
         expect(res.status).toBe(200);
         const ring = JSON.stringify(provider.lastCall().filterQuery);
@@ -250,7 +250,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
         expect(ring).not.toContain('[170,-10],[-170,-10]');
       });
 
-      gap('[GAP] /req/core/fc-bbox-response D: coordinates outside the CRS84 extent (|lat| > 90) are rejected', async () => {
+      it('/req/core/fc-bbox-response D: coordinates outside the CRS84 extent (|lat| > 90) are rejected', async () => {
         expect((await ogc.get('/collections/forests/items?bbox=10,-95,12,52')).status).toBe(400);
       });
     });
@@ -265,8 +265,8 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
         }
       );
 
-      gap.each(['yesterday', '2018-13-45T00:00:00Z', '2018-03-18T12:31:12Z/2018-02-12T00:00:00Z'])(
-        '[GAP] /req/core/fc-time-response D/E, /req/core/query-param-invalid: datetime=%s is not RFC 3339 / a valid interval and yields 400',
+      it.each(['yesterday', '2018-13-45T00:00:00Z', '2018-03-18T12:31:12Z/2018-02-12T00:00:00Z'])(
+        '/req/core/fc-time-response D/E, /req/core/query-param-invalid: datetime=%s is not RFC 3339 / a valid interval and yields 400',
         async (datetime) => {
           expect((await ogc.get(`/collections/lakes/items?datetime=${encodeURIComponent(datetime)}`)).status).toBe(400);
         }
@@ -332,12 +332,12 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
   });
 
   describe('7.16 Feature (/collections/{collectionId}/items/{featureId})', () => {
-    gap('[GAP] /req/core/f-op A, /req/core/f-success A: GET of a single feature returns 200', async () => {
+    it('/req/core/f-op A, /req/core/f-success A: GET of a single feature returns 200', async () => {
       const { body } = await ogc.json('/collections/forests/items?limit=1');
       expect((await ogc.get(`/collections/forests/items/${body.features[0].id}`)).status).toBe(200);
     });
 
-    gap('[GAP] /req/core/f-links A/B: the feature links to itself and to its collection, with rel and type', async () => {
+    it('/req/core/f-links A/B: the feature links to itself and to its collection, with rel and type', async () => {
       const { body: page } = await ogc.json('/collections/forests/items?limit=1');
       const { body } = await ogc.json(`/collections/forests/items/${page.features[0].id}`);
       expect(body.links).toContainEqual(expect.objectContaining({ rel: 'self', type: 'application/geo+json' }));
@@ -364,7 +364,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
       expect(Array.isArray(body.links)).toBe(true);
     });
 
-    gap('[GAP] /req/geojson/content B: a single feature is a GeoJSON Feature whose id equals the featureId path parameter', async () => {
+    it('/req/geojson/content B: a single feature is a GeoJSON Feature whose id equals the featureId path parameter', async () => {
       const { body: page } = await ogc.json('/collections/forests/items?limit=1');
       const id = page.features[0].id;
       const { body } = await ogc.json(`/collections/forests/items/${id}`);
@@ -374,7 +374,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
   });
 
   describe('9. Requirements class "OpenAPI 3.0"', () => {
-    gap('[GAP] /req/oas30/oas-definition-1 A: the landing page links service-desc (OpenAPI JSON) and service-doc (text/html)', async () => {
+    it('/req/oas30/oas-definition-1 A: the landing page links service-desc (OpenAPI JSON) and service-doc (text/html)', async () => {
       const { body } = await ogc.json('/');
       expect(body.links).toContainEqual(expect.objectContaining({ rel: 'service-desc', type: 'application/vnd.oai.openapi+json;version=3.0' }));
       expect(body.links).toContainEqual(expect.objectContaining({ rel: 'service-doc', type: 'text/html' }));
@@ -387,7 +387,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
       expect(api.paths).toBeTypeOf('object');
     });
 
-    gap('[GAP] /req/oas30/oas-impl, /req/oas30/completeness: the definition documents every operation the server implements', async () => {
+    it('/req/oas30/oas-impl, /req/oas30/completeness: the definition documents every operation the server implements', async () => {
       const api: any = await (await ogc.get('/api')).json();
       for (const path of ['/', '/conformance', '/collections', '/collections/{collectionId}', '/collections/{collectionId}/items']) {
         expect(api.paths[path]?.get, path).toBeDefined();

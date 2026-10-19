@@ -190,8 +190,8 @@ export class CrsTransformerClass implements CoordinateTransformer {
       return 'EPSG:4326';
     }
 
-    // 3. Capture standard EPSG digit grouping
-    const epsgMatch = trimmed.match(/(?:EPSG|epsg.xml|EPSG\/0\/)(?::|#)*(\d+)/i);
+    // 3. Capture standard EPSG digit grouping (including versioned URNs/URLs e.g. EPSG:6.3:3006 or EPSG/9.9.1/3006)
+    const epsgMatch = trimmed.match(/(?:EPSG|epsg\.xml)(?:[:/#]+(?:[\d.]+)?[:/#]+|(?::|#)+)(\d+)\b/i);
     if (epsgMatch && epsgMatch[1]) {
       return `EPSG:${epsgMatch[1]}`;
     }
