@@ -3,22 +3,11 @@ import inquirer from 'inquirer';
 import { probeTarget, DiscoveredCollection, ProbeResult } from './probing.js';
 import { runSmokeTests } from './smoke.js';
 import { runStressTests, renderStressReport } from './stress.js';
-
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const arg of args) {
-    if (arg.startsWith('--')) {
-      const parts = arg.substring(2).split('=');
-      const key = parts[0];
-      result[key] = parts.slice(1).join('=');
-    }
-  }
-  return result;
-}
+import { parseArgs, parsePositionalArgs, normalizeUrl, parseCollectionsSpec } from './cli-args.js';
 
 async function main() {
   const args = process.argv.slice(2);
-  const positional = args.filter(a => !a.startsWith('--'));
+  const positional = parsePositionalArgs(args);
   const options = parseArgs(args);
 
   const rawUrl = positional[0] || options.url;
@@ -45,7 +34,7 @@ async function main() {
   }
 
   let auth = (authUser || authPass) ? { user: authUser, pass: authPass } : undefined;
-  const targetUrl = rawUrl.startsWith('http') ? rawUrl : `http://${rawUrl}`;
+  const targetUrl = normalizeUrl(rawUrl);
 
   console.log(`\n\x1b[36m[spatial-tester]\x1b[0m Probing ${targetUrl}...`);
 
@@ -153,34 +142,9 @@ async function main() {
     const duration = parseInt(options.duration || '10', 10);
     const concurrency = parseInt(options.concurrency || '10', 10);
 
-     const testCollections: any[] = [];
+    const testCollections: any[] = [];
     if (options.collections) {
-      // composite format trees:ogc,wfs2.0.0:EPSG:4326;lakes:ogc:EPSG:3857
-      const parts = options.collections.split(';');
-      for (const p of parts) {
-        const sub: string[] = [];
-        const firstColon = p.indexOf(':');
-        if (firstColon !== -1) {
-          sub.push(p.substring(0, firstColon));
-          const secondColon = p.indexOf(':', firstColon + 1);
-          if (secondColon !== -1) {
-            sub.push(p.substring(firstColon + 1, secondColon));
-            sub.push(p.substring(secondColon + 1));
-          } else {
-            sub.push(p.substring(firstColon + 1));
-          }
-        }
-
-        if (sub.length >= 2) {
-          const foundCol = probeResult.collections.find(c => c.name === sub[0]);
-          testCollections.push({
-            name: sub[0],
-            protocols: sub[1].split(','),
-            srs: sub[2] || 'EPSG:4326',
-            bbox: foundCol ? foundCol.bbox : [-180, -90, 180, 90]
-          });
-        }
-      }
+      testCollections.push(...parseCollectionsSpec(options.collections, probeResult.collections));
     } else {
       // Default to all discovered collections on all their supported protocols
       testCollections.push(...probeResult.collections.map(c => ({
