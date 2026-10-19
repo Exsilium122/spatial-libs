@@ -1,7 +1,7 @@
 import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse } from './exception.js';
-import { parseFilterString, parseFilterObj, normalizeKeys } from './filterParser.js';
+import { parseFilterString, parseFilterObj, normalizeKeys, FilterValidationError } from './filterParser.js';
 
 export async function handleWfs110(
   req: GenericRequest,
@@ -497,6 +497,9 @@ export async function handleWfs110(
 
     return buildExceptionResponse(400, 'WFS', 'Unsupported or invalid WFS request', '1.1.0');
   } catch (err: any) {
+    if (err instanceof FilterValidationError || err?.name === 'FilterValidationError') {
+      return buildExceptionResponse('InvalidParameterValue', 'filter', err.message, '1.1.0');
+    }
     if (logger) logger.error('WFS 1.1.0 error:', err);
     return buildExceptionResponse(301, 'WFS', `Internal WFS Processing Error: ${err.message}`, '1.1.0');
   }
