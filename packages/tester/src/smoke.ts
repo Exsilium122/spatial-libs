@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { parseStringPromise } from 'xml2js';
+import { parseXml } from './xml.js';
 
 export interface SmokeTestConfig {
   url: string;
@@ -153,8 +153,8 @@ export async function runSmokeTests(config: SmokeTestConfig): Promise<SmokeTestR
         try {
           // DescribeFeatureType
           const descRes = await axios.get(`${config.wfsUrl}?service=WFS&request=DescribeFeatureType&version=${ver}&typename=${col.name}`, { headers, timeout: 5000 });
-          const descXml = await parseStringPromise(descRes.data);
-          if (!descXml) throw new Error('Schema XML parsing failed');
+          const descXml = await parseXml(descRes.data);
+          if (!descXml || Object.keys(descXml).length === 0) throw new Error('Schema XML parsing failed');
 
           // GetFeature with random bbox
           const srsParamName = ver === '1.0.0' ? 'srsname' : 'srsName';
