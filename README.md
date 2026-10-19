@@ -338,6 +338,10 @@ For detailed options, interactive arrow/checkbox menus, and script automation co
 
 ---
 
+### Standards conformance
+
+Each protocol package carries a conformance suite (`packages/*/test/conformance/`) with one test per requirement of the OGC API Features, WFS 1.0/1.1/2.0, Filter Encoding and RFC 7946 (GeoJSON) standards. The [conformance matrix](docs/standards/README.md) lists the sources, the current pass/gap status and every known gap; `CONFORMANCE_STRICT=1 npm test` reports the gaps as failures.
+
 ## 5. GIS Client Integration (QGIS)
 
 Once your Express server is running locally:
