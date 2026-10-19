@@ -4,7 +4,7 @@ import { probeTarget } from '../src/probing.js';
 
 vi.mock('axios');
 
-const mockedAxios = vi.mocked(axios, true);
+const mockedAxios = vi.mocked(axios, { deep: true });
 
 describe('probeTarget', () => {
   beforeEach(() => {
@@ -57,12 +57,12 @@ describe('probeTarget', () => {
     <wfs:FeatureType>
       <wfs:Name>workspace:forests</wfs:Name>
       <wfs:Title>National Forests</wfs:Title>
-      <wfs:DefaultSRS>urn:ogc:def:crs:EPSG::4326</wfs:DefaultSRS>
-      <wfs:OtherSRS>urn:ogc:def:crs:EPSG::3857</wfs:OtherSRS>
-      <wfs:WGS84BoundingBox>
-        <wfs:LowerCorner>12.5 45.0</wfs:LowerCorner>
-        <wfs:UpperCorner>14.5 46.5</wfs:UpperCorner>
-      </wfs:WGS84BoundingBox>
+      <wfs:DefaultCRS>urn:ogc:def:crs:EPSG::4326</wfs:DefaultCRS>
+      <wfs:OtherCRS>urn:ogc:def:crs:EPSG::3857</wfs:OtherCRS>
+      <ows:WGS84BoundingBox>
+        <ows:LowerCorner>12.5 45.0</ows:LowerCorner>
+        <ows:UpperCorner>14.5 46.5</ows:UpperCorner>
+      </ows:WGS84BoundingBox>
     </wfs:FeatureType>
   </wfs:FeatureTypeList>
 </wfs:WFS_Capabilities>`;
@@ -93,6 +93,50 @@ describe('probeTarget', () => {
       expect(col.projections).toContain('EPSG:4326');
       expect(col.projections).toContain('EPSG:3857');
       expect(col.bbox).toEqual([12.5, 45.0, 14.5, 46.5]);
+    });
+
+    it('discovers collections, protocols, projections, and bbox from namespaced WFS 1.1.0 XML', async () => {
+      const wfsXml110 = `<?xml version="1.0" encoding="UTF-8"?>
+<wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs" xmlns:ows="http://www.opengis.net/ows" version="1.1.0">
+  <wfs:FeatureTypeList>
+    <wfs:FeatureType>
+      <wfs:Name>topp:states</wfs:Name>
+      <wfs:Title>USA Population</wfs:Title>
+      <wfs:DefaultSRS>urn:x-ogc:def:crs:EPSG:4326</wfs:DefaultSRS>
+      <wfs:OtherSRS>urn:x-ogc:def:crs:EPSG:3857</wfs:OtherSRS>
+      <ows:WGS84BoundingBox dimensions="2">
+        <ows:LowerCorner>-124.731422 24.955967</ows:LowerCorner>
+        <ows:UpperCorner>-66.969849 49.371735</ows:UpperCorner>
+      </ows:WGS84BoundingBox>
+    </wfs:FeatureType>
+  </wfs:FeatureTypeList>
+</wfs:WFS_Capabilities>`;
+
+      mockedAxios.get.mockImplementation(async (url: string) => {
+        if (url.includes('request=GetCapabilities')) {
+          if (url.includes('version=1.1.0')) {
+            return {
+              status: 200,
+              data: wfsXml110
+            };
+          }
+          throw new Error('Unsupported version');
+        }
+        throw new Error('Not an OGC endpoint');
+      });
+
+      const result = await probeTarget('http://localhost:8080/wfs');
+
+      expect(result.wfsUrl).toBe('http://localhost:8080/wfs');
+      expect(result.wfsVersions).toContain('1.1.0');
+      expect(result.collections).toHaveLength(1);
+
+      const col = result.collections[0];
+      expect(col.name).toBe('states');
+      expect(col.protocols).toEqual(['wfs1.1.0']);
+      expect(col.projections).toContain('EPSG:4326');
+      expect(col.projections).toContain('EPSG:3857');
+      expect(col.bbox).toEqual([-124.731422, 24.955967, -66.969849, 49.371735]);
     });
 
     it('discovers collections and bbox from WFS 1.0.0 XML with LatLongBoundingBox', async () => {
