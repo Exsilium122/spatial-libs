@@ -1,6 +1,6 @@
 import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
-import { buildExceptionResponse } from './exception.js';
+import { buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys } from './filterParser.js';
 
 export async function handleWfs200(
@@ -14,7 +14,7 @@ export async function handleWfs200(
 
   // Normalize queries to uppercase keys
   const query: Record<string, any> = {};
-  for (const k of Object.keys(req.query)) {
+  for (const k of Object.keys(req.query || {})) {
     query[k.toUpperCase()] = req.query[k];
   }
 
@@ -534,7 +534,10 @@ export async function handleWfs200(
 
     return buildExceptionResponse(400, 'WFS', 'Unsupported or invalid WFS request', version);
   } catch (err: any) {
+    if (err instanceof WfsClientError || err?.isClientSafe) {
+      return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, version);
+    }
     if (logger) logger.error(`WFS ${version} error:`, err);
-    return buildExceptionResponse(301, 'WFS', `Internal WFS Processing Error: ${err.message}`, version);
+    return buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, version);
   }
 }

@@ -4,7 +4,7 @@ import { WfsOptions, GenericRequest, GenericResponse, SpatialDataProvider } from
 import { handleWfs100 } from './v1_0_0.js';
 import { handleWfs110 } from './v1_1_0.js';
 import { handleWfs200 } from './v2_0_0.js';
-import { buildExceptionXml } from './exception.js';
+import { buildExceptionXml, buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 
 // Export everything for granular consumption
 export * from './types.js';
@@ -54,63 +54,72 @@ export async function dispatchWfsRequest(
   req: GenericRequest,
   options: WfsOptions
 ): Promise<GenericResponse> {
-  // Determine requested WFS version case-insensitively
   let version = req.query?.VERSION || req.query?.version || req.query?.Version || '';
 
-  // Check AcceptVersions parameter (used in GetCapabilities)
-  const acceptVersions = req.query?.ACCEPTVERSIONS || req.query?.acceptVersions || req.query?.AcceptVersions;
-  if (!version && acceptVersions) {
-    const versions = String(acceptVersions).split(',');
-    if (versions.includes('2.0.2')) {
+  try {
+    // Check AcceptVersions parameter (used in GetCapabilities)
+    const acceptVersions = req.query?.ACCEPTVERSIONS || req.query?.acceptVersions || req.query?.AcceptVersions;
+    if (!version && acceptVersions) {
+      const versions = String(acceptVersions).split(',');
+      if (versions.includes('2.0.2')) {
+        version = '2.0.2';
+      } else if (versions.includes('2.0.0')) {
+        version = '2.0.0';
+      } else if (versions.includes('1.1.0')) {
+        version = '1.1.0';
+      } else if (versions.includes('1.0.0')) {
+        version = '1.0.0';
+      }
+    }
+
+    // Check POST body (already parsed by xmlparser)
+    if (!version && req.body) {
+      const bodyKeys = Object.keys(req.body);
+      if (bodyKeys.length > 0) {
+        const rootNode = req.body[bodyKeys[0]];
+        version = rootNode?.$?.version || '';
+      }
+    }
+
+    // Default to highest version: 2.0.2
+    if (!version) {
       version = '2.0.2';
-    } else if (versions.includes('2.0.0')) {
-      version = '2.0.0';
-    } else if (versions.includes('1.1.0')) {
-      version = '1.1.0';
-    } else if (versions.includes('1.0.0')) {
-      version = '1.0.0';
     }
-  }
 
-  // Check POST body (already parsed by xmlparser)
-  if (!version && req.body) {
-    const bodyKeys = Object.keys(req.body);
-    if (bodyKeys.length > 0) {
-      const rootNode = req.body[bodyKeys[0]];
-      version = rootNode?.$?.version || '';
+    // Apply enabledVersions constraint if specified
+    if (options.enabledVersions && options.enabledVersions.length > 0) {
+      const matchVer = version as any;
+      if (!options.enabledVersions.includes(matchVer)) {
+        const body = buildExceptionXml(
+          'VersionNegotiationFailed',
+          'version',
+          `WFS version ${version} is disabled by administrator.`,
+          '1.1.0'
+        );
+        return {
+          status: 400,
+          headers: { 'Content-Type': 'text/xml' },
+          body
+        };
+      }
     }
-  }
 
-  // Default to highest version: 2.0.2
-  if (!version) {
-    version = '2.0.2';
-  }
-
-  // Apply enabledVersions constraint if specified
-  if (options.enabledVersions && options.enabledVersions.length > 0) {
-    const matchVer = version as any;
-    if (!options.enabledVersions.includes(matchVer)) {
-      const body = buildExceptionXml(
-        'VersionNegotiationFailed',
-        'version',
-        `WFS version ${version} is disabled by administrator.`,
-        '1.1.0'
-      );
-      return {
-        status: 400,
-        headers: { 'Content-Type': 'text/xml' },
-        body
-      };
+    // Dispatch to the correct version handler
+    if (version === '2.0.0' || version === '2.0.2') {
+      return await handleWfs200(req, options);
+    } else if (version === '1.1.0') {
+      return await handleWfs110(req, options);
+    } else {
+      return await handleWfs100(req, options);
     }
-  }
-
-  // Dispatch to the correct version handler
-  if (version === '2.0.0' || version === '2.0.2') {
-    return handleWfs200(req, options);
-  } else if (version === '1.1.0') {
-    return handleWfs110(req, options);
-  } else {
-    return handleWfs100(req, options);
+  } catch (err: any) {
+    if (err instanceof WfsClientError || err?.isClientSafe) {
+      return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, version || '1.1.0');
+    }
+    if (options.logger) {
+      options.logger.error('WFS dispatch error:', err);
+    }
+    return buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, version || '1.1.0');
   }
 }
 
@@ -169,11 +178,19 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
         res.setHeader(k, v);
       }
       res.send(result.body);
-    } catch (error) {
+    } catch (error: any) {
       if (options.logger) {
         options.logger.error('WFS router execution error:', error);
       }
-      next(error);
+      const genericResponse = (error instanceof WfsClientError || error?.isClientSafe)
+        ? buildExceptionResponse(error.code || 400, error.locator || 'WFS', error.message, '1.1.0')
+        : buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0');
+
+      res.status(genericResponse.status);
+      for (const [k, v] of Object.entries(genericResponse.headers)) {
+        res.setHeader(k, v);
+      }
+      res.send(genericResponse.body);
     }
   };
 
