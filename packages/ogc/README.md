@@ -65,9 +65,12 @@ npm install @spatial-api/ogc
 
 Define your spatial data provider matching the standard `SpatialDataProvider` contract, and plug it into `createOgcRouter`.
 
+### Database-Level Pagination (Recommended)
+To prevent memory exhaustion (OOM) on large datasets, implement `countFeatures` alongside `getFeatures`. When `countFeatures` is defined, `@spatial-api/ogc` delegates pagination directly to the database using the 5th `options` argument (`{ limit, offset }`). If `countFeatures` is omitted, the router falls back to legacy in-memory slicing and logs a one-time warning.
+
 ```typescript
 import express from 'express';
-import createOgcRouter, { SpatialDataProvider } from '@spatial-api/ogc';
+import createOgcRouter, { SpatialDataProvider, FeatureQueryOptions } from '@spatial-api/ogc';
 
 // 1. Define your database-agnostic provider
 const mySpatialProvider: SpatialDataProvider = {
@@ -79,8 +82,14 @@ const mySpatialProvider: SpatialDataProvider = {
     return { minLon: 15.0, minLat: 60.0, maxLon: 17.0, maxLat: 62.0 };
   },
 
-  async getFeatures(context, featureType, fids, filterQuery) {
-    // Implement spatial queries, bbox queries, or ID lookups here
+  async getFeatures(context, featureType, fids, filterQuery, options?: FeatureQueryOptions) {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+
+    // Database-level pagination example (MongoDB):
+    // const query = buildMongoQuery(filterQuery);
+    // return await collection.find(query).skip(offset).limit(limit).toArray();
+
     return [
       {
         id: '1',
@@ -88,6 +97,13 @@ const mySpatialProvider: SpatialDataProvider = {
         properties: { name: 'Greenwood Forest', note: 'State park forest' }
       }
     ];
+  },
+
+  async countFeatures(context, featureType, filterQuery) {
+    // MongoDB count example:
+    // const query = buildMongoQuery(filterQuery);
+    // return await collection.countDocuments(query);
+    return 1;
   }
 };
 
@@ -97,6 +113,7 @@ const app = express();
 app.use('/api/ogc', createOgcRouter({
   provider: mySpatialProvider,
   baseUrl: 'http://localhost:3000/api/ogc',
+  trustedHosts: ['localhost:3000', 'api.example.com'],
   logger: console,
   defaultLimit: 50,
   maxLimit: 1000
@@ -126,7 +143,7 @@ When querying `/collections/:collectionId/items`, standard parameters are parsed
 - `bbox`: Intersects features with `minLon,minLat,maxLon,maxLat` bounding boxes.
 - `limit`: Number of features to return (falls back to `defaultLimit`, capped at `maxLimit`).
 - `offset` / `startindex`: Integer index page offset for navigation pagination.
-- `name`: Simple match attribute filters.
+- `name`: Simple match attribute filter. Must be a single string; non-string values (e.g. nested objects like `?name[$ne]=null` or arrays `?name=a&name=b`) are rejected with HTTP 400 to prevent NoSQL injection.
 
 ---
 
@@ -137,7 +154,8 @@ When calling `createOgcRouter(options)`, you can customize behavior using the fo
 | Property | Type | Description |
 | :--- | :--- | :--- |
 | `provider` | `SpatialDataProvider` | **(Required)** Your custom data provider instance containing database retrieval methods. |
-| `baseUrl` | `string` | **(Required)** The public root endpoint URL (e.g. `http://localhost:3000/api/ogc`). |
+| `baseUrl` | `string` | **(Required)** The public root endpoint URL (e.g. `http://localhost:3000/api/ogc` or relative `/api/ogc`). |
+| `trustedHosts` | `string[]` | *(Optional)* Allowlist of permitted `Host` header values (e.g. `['api.example.com', 'localhost:3000']`, matched case-insensitively). Prevents Host header poisoning when `baseUrl` is relative. |
 | `appUrl` | `string` | *(Optional)* Core server/app URL fallback. |
 | `logger` | `Logger` | *(Optional)* Custom logger implementation (e.g. Pino, Winston, or `console`). |
 | `crsTransformer` | `CoordinateTransformer` | *(Optional)* Injected Coordinate Transformer instance (e.g. from `@spatial-api/crs-transformer`) enabling dynamic coordinate transformations and OGC Part 2 CRS support. |
