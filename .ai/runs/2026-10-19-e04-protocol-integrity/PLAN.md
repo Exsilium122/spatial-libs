@@ -26,8 +26,8 @@ The three stories touch disjoint packages and share no interface change
 ## Progress
 
 ### Phase 1 — Parallel fixes
-- [ ] 1.1 Unit A — OGC native BBOX filtering (#15)
-- [ ] 1.2 Unit B — CRS 3D coordinate reprojection (#16)
+- [x] 1.1 Unit A — OGC native BBOX filtering (#15)
+- [x] 1.2 Unit B — CRS 3D coordinate reprojection (#16)
 - [ ] 1.3 Unit C — WFS exception sanitization (#17)
 
 ### Phase 2 — Integration
