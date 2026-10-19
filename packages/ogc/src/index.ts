@@ -459,7 +459,8 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
             '[Spatial OGC] SpatialDataProvider does not implement countFeatures(); falling back to in-memory pagination. Implement countFeatures to enable database-level pagination.'
           );
         }
-        const allFeatures = await provider.getFeatures(req.user, collectionId, [], filterQuery, { limit, offset });
+        // Options are deliberately withheld: a provider that paged without countFeatures would get the offset applied twice
+        const allFeatures = await provider.getFeatures(req.user, collectionId, [], filterQuery);
         numberMatched = allFeatures.length;
         paginatedFeatures = allFeatures.slice(offset, offset + limit);
       }

@@ -399,6 +399,54 @@ describe('WFS Filter Security Hardening', () => {
       expect(provider.getFeaturesCalled).toBe(true);
     });
 
+    it('produces a regex that evaluates adversarial values in linear time', async () => {
+      const req = {
+        method: 'GET' as const,
+        query: {
+          REQUEST: 'GetFeature',
+          SERVICE: 'WFS',
+          VERSION: '1.1.0',
+          TYPENAMES: 'trees-ns:trees',
+          FILTER: `<Filter><PropertyIsLike><PropertyName>name</PropertyName><Literal>${'*ba'.repeat(30)}*c</Literal></PropertyIsLike></Filter>`,
+        },
+      };
+
+      const res = await dispatchWfsRequest(req, options);
+      expect(res.status).toBe(200);
+      const re: RegExp = provider.lastFilterQuery.name.$regex;
+
+      const start = performance.now();
+      expect(re.test('ba'.repeat(2000))).toBe(false);
+      expect(re.test('a'.repeat(5000))).toBe(false);
+      expect(performance.now() - start).toBeLessThan(100);
+
+      expect(re.test('ba'.repeat(30) + 'c')).toBe(true);
+      expect(re.test('xx' + 'ba'.repeat(31) + 'yyc')).toBe(true);
+    });
+
+    it('keeps glob semantics for multi-wildcard patterns', async () => {
+      const like = async (pattern: string) => {
+        await dispatchWfsRequest({
+          method: 'GET' as const,
+          query: {
+            REQUEST: 'GetFeature',
+            SERVICE: 'WFS',
+            VERSION: '1.1.0',
+            TYPENAMES: 'trees-ns:trees',
+            FILTER: `<Filter><PropertyIsLike><PropertyName>name</PropertyName><Literal>${pattern}</Literal></PropertyIsLike></Filter>`,
+          },
+        }, options);
+        return provider.lastFilterQuery.name.$regex as RegExp;
+      };
+
+      expect((await like('a*b*c')).test('aXbYc')).toBe(true);
+      expect((await like('a*b*c')).test('aXcYb')).toBe(false);
+      expect((await like('*ab*ab')).test('xabab')).toBe(true);
+      expect((await like('*ab*ab')).test('xab')).toBe(false);
+      expect((await like('a.b%')).test('a.bc')).toBe(true);
+      expect((await like('a.b%')).test('axbc')).toBe(false);
+    });
+
     it('rejects PropertyIsLike literal > 256 characters with 400 InvalidParameterValue', async () => {
       const longLiteral = 'a'.repeat(257);
       const req = {

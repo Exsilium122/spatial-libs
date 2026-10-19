@@ -44,6 +44,29 @@ function validateLiteral(lit: unknown): string | number | boolean | undefined {
 }
 
 /**
+ * Converts a PropertyIsLike pattern (wildcards * or %) into an anchored, case-insensitive RegExp
+ * that matches in linear time. A naive `.*` per wildcard backtracks polynomially (O(n^k) for k
+ * wildcards). Instead, every middle segment is matched at its earliest occurrence inside an
+ * atomic group emulated with a capturing lookahead + backreference, which is equivalent for
+ * glob semantics and cannot backtrack.
+ */
+function likePatternToRegExp(pattern: string): RegExp {
+  const segments = pattern
+    .replace(/[*%]+/g, '*')
+    .split('*')
+    .map((s) => s.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+  if (segments.length === 1) {
+    return new RegExp('^' + segments[0] + '$', 'i');
+  }
+  let source = '^' + segments[0];
+  for (let i = 1; i < segments.length - 1; i++) {
+    source += '(?=(.*?' + segments[i] + '))\\' + i;
+  }
+  source += '.*' + segments[segments.length - 1] + '$';
+  return new RegExp(source, 'i');
+}
+
+/**
  * Unwraps arrays recursively to support both explicitArray: true and simple object outputs.
  */
 export function unwrap(val: any): any {
@@ -197,11 +220,7 @@ export function parseFilterObj(filterNode: any): any {
       if (litStr.length > 256) {
         throw new FilterValidationError('PropertyIsLike literal exceeds maximum length of 256 characters');
       }
-      const collapsed = litStr.replace(/[*%]+/g, '*');
-      const escaped = collapsed
-        .replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-        .replace(/\\\*/g, '.*');
-      query[prop] = { $regex: new RegExp('^' + escaped + '$', 'i') };
+      query[prop] = { $regex: likePatternToRegExp(litStr) };
     }
   }
 

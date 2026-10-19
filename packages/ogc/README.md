@@ -66,7 +66,7 @@ npm install @spatial-api/ogc
 Define your spatial data provider matching the standard `SpatialDataProvider` contract, and plug it into `createOgcRouter`.
 
 ### Database-Level Pagination (Recommended)
-To prevent memory exhaustion (OOM) on large datasets, implement `countFeatures` alongside `getFeatures`. When `countFeatures` is defined, `@spatial-api/ogc` delegates pagination directly to the database using the 5th `options` argument (`{ limit, offset }`). If `countFeatures` is omitted, the router falls back to legacy in-memory slicing and logs a one-time warning.
+To prevent memory exhaustion (OOM) on large datasets, implement `countFeatures` alongside `getFeatures`. When `countFeatures` is defined, `@spatial-api/ogc` delegates pagination directly to the database using the 5th `options` argument (`{ limit, offset }`). If `countFeatures` is omitted, `getFeatures` is called without the `options` argument and the router falls back to legacy in-memory slicing, logging a one-time warning. Implement both methods together: paging inside `getFeatures` without `countFeatures` would apply the offset twice.
 
 ```typescript
 import express from 'express';

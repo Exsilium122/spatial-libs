@@ -326,7 +326,7 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
       // countFeatures is deliberately NOT implemented
     }
 
-    it('paginates in memory, passes 5th arg, and logs warning exactly once per router', async () => {
+    it('paginates in memory, withholds the 5th arg (no double offset), and logs warning exactly once per router', async () => {
       const mockLogger: Logger = {
         info: vi.fn(),
         warn: vi.fn(),
@@ -344,7 +344,7 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
       // First query
       const res1 = await makeRequest(port, '/api/ogc/collections/woods/items?limit=5&offset=10');
       expect(res1.status).toBe(200);
-      expect(provider.lastOptions).toEqual({ limit: 5, offset: 10 });
+      expect(provider.lastOptions).toBeUndefined();
       expect(res1.body.numberMatched).toBe(30);
       expect(res1.body.numberReturned).toBe(5);
       expect(res1.body.features.length).toBe(5);
