@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { OgcOptions, SpatialDataProvider, OgcCollectionMetadata } from './types.js';
+import { OgcOptions, SpatialDataProvider, OgcCollectionMetadata, GeoJSONFeature } from './types.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -44,6 +44,27 @@ function verifyLogger(logger: any): void {
   );
 }
 
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function serializeQuery(params: Record<string, any>): string {
+  const pairs: string[] = [];
+  for (const key of Object.keys(params)) {
+    if (DANGEROUS_KEYS.has(key)) continue;
+    const val = params[key];
+    if (val === undefined || val === null) continue;
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+      pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(val))}`);
+    } else if (Array.isArray(val)) {
+      for (const item of val) {
+        if (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean') {
+          pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(item))}`);
+        }
+      }
+    }
+  }
+  return pairs.join('&');
+}
+
 /**
  * Creates a standard Express router configured with the OGC API Features handlers.
  */
@@ -67,12 +88,43 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
   const defaultLimit = options.defaultLimit || 50;
   const maxLimit = options.maxLimit || 1000;
 
+  const isAbsoluteBaseUrl = baseUrl.startsWith('http://') || baseUrl.startsWith('https://');
+  if (!isAbsoluteBaseUrl && !options.trustedHosts) {
+    logger?.warn(
+      '[Spatial OGC] Relative baseUrl configured without trustedHosts allowlist. Set an absolute baseUrl or configure trustedHosts to prevent Host header poisoning.'
+    );
+  }
+
+  const trustedHostsSet = options.trustedHosts
+    ? new Set(options.trustedHosts.map(h => h.trim().toLowerCase()))
+    : null;
+
+  let hasWarnedLegacyPagination = false;
+
   const router = express.Router();
 
+  const HOST_PATTERN = /^[a-zA-Z0-9.-]+(:\d{1,5})?$/;
+  const IPV6_HOST_PATTERN = /^\[[a-fA-F0-9:]+\](:\d{1,5})?$/;
+
+  const isHostUsable = (host: string | undefined): boolean => {
+    if (!host || typeof host !== 'string') return false;
+    if (!HOST_PATTERN.test(host) && !IPV6_HOST_PATTERN.test(host)) return false;
+    if (trustedHostsSet !== null) {
+      return trustedHostsSet.has(host.toLowerCase());
+    }
+    return true;
+  };
+
   // Helper to get baseUrl dynamically from request if baseUrl was relative, or use configured baseUrl
-  const getRequestBaseUrl = (req: Request) => {
-    if (baseUrl.startsWith('http')) return baseUrl;
-    return `${req.protocol}://${req.get('host')}${req.baseUrl}`;
+  const getRequestBaseUrl = (req: Request): string => {
+    if (baseUrl.startsWith('http://') || baseUrl.startsWith('https://')) {
+      return baseUrl;
+    }
+    const host = req.get('host');
+    if (isHostUsable(host)) {
+      return `${req.protocol}://${host}${req.baseUrl}`;
+    }
+    return req.baseUrl;
   };
 
   // 1. Landing Page (GET /)
@@ -384,16 +436,34 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         }
       }
 
-      // Allow simple name filter if supplied
-      if (req.query.name) {
+      // Validate and extract name filter parameter
+      if (req.query.name !== undefined) {
+        if (typeof req.query.name !== 'string') {
+          return res.status(400).json({ error: 'Invalid "name" parameter: expected a single string value.' });
+        }
         filterQuery.name = req.query.name;
       }
 
-      const allFeatures = await provider.getFeatures(req.user, collectionId, [], filterQuery);
-      const numberMatched = allFeatures.length;
+      const isPaginationAware = typeof provider.countFeatures === 'function';
+      let paginatedFeatures: GeoJSONFeature[];
+      let numberMatched: number;
 
-      // Slice array in-memory for pagination
-      const paginatedFeatures = allFeatures.slice(offset, offset + limit);
+      if (isPaginationAware) {
+        const featuresPage = await provider.getFeatures(req.user, collectionId, [], filterQuery, { limit, offset });
+        numberMatched = await provider.countFeatures!(req.user, collectionId, filterQuery);
+        paginatedFeatures = featuresPage.length > limit ? featuresPage.slice(0, limit) : featuresPage;
+      } else {
+        if (!hasWarnedLegacyPagination) {
+          hasWarnedLegacyPagination = true;
+          logger?.warn(
+            '[Spatial OGC] SpatialDataProvider does not implement countFeatures(); falling back to in-memory pagination. Implement countFeatures to enable database-level pagination.'
+          );
+        }
+        const allFeatures = await provider.getFeatures(req.user, collectionId, [], filterQuery, { limit, offset });
+        numberMatched = allFeatures.length;
+        paginatedFeatures = allFeatures.slice(offset, offset + limit);
+      }
+
       const numberReturned = paginatedFeatures.length;
 
       const geomType = (typeof provider.getGeometryType === 'function') 
@@ -421,25 +491,31 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       const links: any[] = [];
 
       // Construct self link preserving other queries
-      const queryParams = { ...req.query };
-      const queryStr = Object.keys(queryParams)
-        .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(String(queryParams[key]))}`)
-        .join('&');
-      
+      const selfParams: Record<string, any> = Object.create(null);
+      for (const key of Object.keys(req.query)) {
+        if (!DANGEROUS_KEYS.has(key)) {
+          selfParams[key] = req.query[key];
+        }
+      }
+      const selfQueryStr = serializeQuery(selfParams);
       links.push({
         rel: 'self',
         type: 'application/geo+json',
         title: 'This document',
-        href: `${activeBase}/collections/${collectionId}/items` + (queryStr ? `?${queryStr}` : '')
+        href: `${activeBase}/collections/${collectionId}/items` + (selfQueryStr ? `?${selfQueryStr}` : '')
       });
 
       const getPageHref = (newOffset: number) => {
-        const params: any = { ...req.query, limit, offset: newOffset };
-        delete params.startindex;
-        const str = Object.keys(params)
-          .map(k => `${encodeURIComponent(k)}=${encodeURIComponent(String(params[k]))}`)
-          .join('&');
-        return `${activeBase}/collections/${collectionId}/items?${str}`;
+        const pageParams: Record<string, any> = Object.create(null);
+        for (const key of Object.keys(req.query)) {
+          if (!DANGEROUS_KEYS.has(key) && key !== 'startindex' && key !== 'offset' && key !== 'limit') {
+            pageParams[key] = req.query[key];
+          }
+        }
+        pageParams.limit = limit;
+        pageParams.offset = newOffset;
+        const pageQueryStr = serializeQuery(pageParams);
+        return `${activeBase}/collections/${collectionId}/items?${pageQueryStr}`;
       };
 
       // Next link
