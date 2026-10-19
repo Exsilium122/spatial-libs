@@ -29,5 +29,5 @@ Merge A and B, then run the full gate (`npm test`, `npm run build`) and get a fi
 - [x] Unit A — ci.yml + gated, pinned publish.yml
 - [x] Unit B — tester Vitest suite
 - [x] Integration gate green (51 tests, build OK)
-- [ ] Final review approved
-- [ ] PR ready
+- [x] Final review approved (df71e472)
+- [x] PR ready
