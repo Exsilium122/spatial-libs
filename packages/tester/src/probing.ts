@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { parseStringPromise } from 'xml2js';
+import { parseXml } from './xml.js';
 
 export interface DiscoveredCollection {
   name: string;
@@ -110,7 +110,19 @@ export async function probeTarget(
         if (err2.response?.status === 401) {
           has401 = true;
         }
-        // Ignore WFS candidate failures
+        try {
+          // Fallback GetCapabilities 1.0.0
+          const res = await axios.get(`${candidate}?service=WFS&request=GetCapabilities&version=1.0.0`, { headers, timeout: 5000 });
+          if (res.status === 200 && typeof res.data === 'string' && res.data.includes('Capabilities')) {
+            result.wfsUrl = candidate;
+            break;
+          }
+        } catch (err3: any) {
+          if (err3.response?.status === 401) {
+            has401 = true;
+          }
+          // Ignore WFS candidate failures
+        }
       }
     }
   }
@@ -167,7 +179,7 @@ export async function probeTarget(
         const res = await axios.get(`${result.wfsUrl}?service=WFS&request=GetCapabilities&version=${ver}`, { headers, timeout: 5000 });
         if (res.status === 200 && typeof res.data === 'string' && res.data.includes('Capabilities')) {
           result.wfsVersions.push(ver);
-          const xmlParsed = await parseStringPromise(res.data);
+          const xmlParsed = await parseXml(res.data);
           const cleanXml = stripPrefix(xmlParsed);
 
           const wfsCap = cleanXml.WFS_Capabilities || cleanXml.WFS_Capabilities_Type;
@@ -176,30 +188,48 @@ export async function probeTarget(
             const featureTypes = featureTypeList.FeatureType || [];
 
             for (const ft of featureTypes) {
-              const name = String(ft.Name ? ft.Name[0] : '');
+              const rawName = ft.Name ? (Array.isArray(ft.Name) ? ft.Name[0] : ft.Name) : '';
+              const name = String(typeof rawName === 'object' && rawName !== null ? (rawName._ || rawName['#text'] || '') : rawName);
               if (!name) continue;
 
               const cleanName = name.replace(/^.*:/, '');
 
-              // Parse projections (SRS)
+              // Parse projections (SRS/CRS)
               let projections: string[] = ['EPSG:4326'];
-              if (ft.DefaultSRS) {
-                const srs = String(ft.DefaultSRS[0]);
-                const match = srs.match(/EPSG::?(\d+)/i);
+              const defaultSrs = ft.DefaultSRS || ft.DefaultCRS;
+              if (defaultSrs) {
+                const srsEl = Array.isArray(defaultSrs) ? defaultSrs[0] : defaultSrs;
+                const srs = String(typeof srsEl === 'object' && srsEl !== null ? (srsEl._ || srsEl['#text'] || '') : srsEl);
+                const match = srs.match(/EPSG(?:[:\/]+[\w.]*[:\/]+|::?|:)(\d+)/i);
                 if (match && match[1] !== '0') projections = [`EPSG:${match[1]}`];
               } else if (ft.SRS) {
                 // WFS 1.0.0
-                const srsList = ft.SRS.map((s: any) => {
-                  const match = String(s).match(/EPSG::?(\d+)/i);
-                  return match ? `EPSG:${match[1]}` : String(s);
+                const srsArray = Array.isArray(ft.SRS) ? ft.SRS : [ft.SRS];
+                const srsList = srsArray.map((s: any) => {
+                  const str = typeof s === 'object' && s !== null ? (s._ || s['#text'] || '') : String(s);
+                  const match = str.match(/EPSG(?:[:\/]+[\w.]*[:\/]+|::?|:)(\d+)/i);
+                  return match && match[1] !== '0' ? `EPSG:${match[1]}` : str;
                 }).filter((p: string) => p !== 'EPSG:0' && !p.endsWith(':0') && p !== '0');
                 if (srsList.length > 0) projections = srsList;
+              } else if (ft.CRS) {
+                const crsArray = Array.isArray(ft.CRS) ? ft.CRS : [ft.CRS];
+                const crsList = crsArray.map((s: any) => {
+                  const str = typeof s === 'object' && s !== null ? (s._ || s['#text'] || '') : String(s);
+                  const match = str.match(/EPSG(?:[:\/]+[\w.]*[:\/]+|::?|:)(\d+)/i);
+                  return match && match[1] !== '0' ? `EPSG:${match[1]}` : str;
+                }).filter((p: string) => p !== 'EPSG:0' && !p.endsWith(':0') && p !== '0');
+                if (crsList.length > 0) projections = crsList;
               }
 
-              if (ft.OtherSRS) {
-                const other = ft.OtherSRS.map((s: any) => {
-                  const match = String(s).match(/EPSG::?(\d+)/i);
-                  return match ? `EPSG:${match[1]}` : String(s);
+              const otherList = [
+                ...(ft.OtherSRS ? (Array.isArray(ft.OtherSRS) ? ft.OtherSRS : [ft.OtherSRS]) : []),
+                ...(ft.OtherCRS ? (Array.isArray(ft.OtherCRS) ? ft.OtherCRS : [ft.OtherCRS]) : [])
+              ];
+              if (otherList.length > 0) {
+                const other = otherList.map((s: any) => {
+                  const str = typeof s === 'object' && s !== null ? (s._ || s['#text'] || '') : String(s);
+                  const match = str.match(/EPSG(?:[:\/]+[\w.]*[:\/]+|::?|:)(\d+)/i);
+                  return match && match[1] !== '0' ? `EPSG:${match[1]}` : str;
                 }).filter((p: string) => p !== 'EPSG:0' && !p.endsWith(':0') && p !== '0');
                 projections.push(...other);
               }
@@ -211,15 +241,19 @@ export async function probeTarget(
 
               let bbox: [number, number, number, number] = [-180, -90, 180, 90];
               if (ft.WGS84BoundingBox) {
-                const wgs = ft.WGS84BoundingBox[0];
-                const lower = String(wgs.LowerCorner ? wgs.LowerCorner[0] : '').split(' ');
-                const upper = String(wgs.UpperCorner ? wgs.UpperCorner[0] : '').split(' ');
+                const wgs = Array.isArray(ft.WGS84BoundingBox) ? ft.WGS84BoundingBox[0] : ft.WGS84BoundingBox;
+                const lowerEl = wgs?.LowerCorner ? (Array.isArray(wgs.LowerCorner) ? wgs.LowerCorner[0] : wgs.LowerCorner) : '';
+                const upperEl = wgs?.UpperCorner ? (Array.isArray(wgs.UpperCorner) ? wgs.UpperCorner[0] : wgs.UpperCorner) : '';
+                const lowerStr = String(typeof lowerEl === 'object' && lowerEl !== null ? (lowerEl._ || lowerEl['#text'] || '') : lowerEl).trim();
+                const upperStr = String(typeof upperEl === 'object' && upperEl !== null ? (upperEl._ || upperEl['#text'] || '') : upperEl).trim();
+                const lower = lowerStr.split(/\s+/);
+                const upper = upperStr.split(/\s+/);
                 if (lower.length >= 2 && upper.length >= 2) {
                   bbox = [Number(lower[0]), Number(lower[1]), Number(upper[0]), Number(upper[1])];
                 }
               } else if (ft.LatLongBoundingBox) {
-                const latlon = ft.LatLongBoundingBox[0];
-                const attrs = latlon.$ || {};
+                const latlon = Array.isArray(ft.LatLongBoundingBox) ? ft.LatLongBoundingBox[0] : ft.LatLongBoundingBox;
+                const attrs = latlon?.$ || {};
                 if (attrs.minx && attrs.miny && attrs.maxx && attrs.maxy) {
                   bbox = [Number(attrs.minx), Number(attrs.miny), Number(attrs.maxx), Number(attrs.maxy)];
                 }

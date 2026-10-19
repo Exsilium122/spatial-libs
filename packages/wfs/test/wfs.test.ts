@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import createWfsRouter, { dispatchWfsRequest } from '../src/index.js';
+import { describe, it, expect, vi } from 'vitest';
+import createWfsRouter, { dispatchWfsRequest, handleWfs100, handleWfs110, handleWfs200 } from '../src/index.js';
 import { SpatialDataProvider, GeoJSONFeature, BoundingBox } from '../src/types.js';
 import CrsTransformer from '../../crs/src/index.js';
 
@@ -246,4 +246,157 @@ describe('WFS Library - @spatial-api/wfs', () => {
       expect(res.body).toContain('5603903');
     });
   });
+
+  describe('WFS Exception Sanitization and Diagnostics (#17)', () => {
+    const secretError = new Error('relation "secret_table" does not exist');
+
+    class FailingProvider extends MockTreesProvider {
+      override async getFeatures(): Promise<GeoJSONFeature[]> {
+        throw secretError;
+      }
+    }
+
+    const versions = ['1.0.0', '1.1.0', '2.0.0'] as const;
+
+    for (const version of versions) {
+      it(`sanitizes unexpected provider errors in WFS ${version} via dispatchWfsRequest`, async () => {
+        const logger = {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+        };
+
+        const failingOptions = {
+          ...options,
+          provider: new FailingProvider(),
+          logger,
+        };
+
+        const req = {
+          method: 'GET' as const,
+          query: {
+            request: 'GetFeature',
+            version,
+            typename: 'trees-ns:trees',
+          },
+        };
+
+        const res = await dispatchWfsRequest(req, failingOptions);
+
+        expect(res.status).toBe(400);
+        expect(res.headers['Content-Type']).toBe('text/xml');
+        expect(res.body).not.toContain('secret_table');
+        expect(res.body).toContain('An internal error occurred while processing the request.');
+        expect(logger.error).toHaveBeenCalled();
+        const logged = logger.error.mock.calls.some((call) => call.includes(secretError));
+        expect(logged).toBe(true);
+      });
+
+      it(`preserves expected client validation diagnostics in WFS ${version}`, async () => {
+        const logger = {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+        };
+
+        const req = {
+          method: 'GET' as const,
+          query: {
+            request: 'GetFeature',
+            version,
+          },
+        };
+
+        const res = await dispatchWfsRequest(req, { ...options, logger });
+
+        expect(res.status).toBe(400);
+        expect(res.headers['Content-Type']).toBe('text/xml');
+        expect(res.body).toContain('error: missing feature type');
+        expect(logger.error).not.toHaveBeenCalled();
+      });
+    }
+
+    it('sanitizes unexpected provider errors via direct version handler entrypoints', async () => {
+      const handlers = [
+        { version: '1.0.0', handler: handleWfs100 },
+        { version: '1.1.0', handler: handleWfs110 },
+        { version: '2.0.0', handler: handleWfs200 },
+      ] as const;
+
+      for (const { version, handler } of handlers) {
+        const logger = {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+        };
+
+        const failingOptions = {
+          ...options,
+          provider: new FailingProvider(),
+          logger,
+        };
+
+        const req = {
+          method: 'GET' as const,
+          query: {
+            request: 'GetFeature',
+            version,
+            typename: 'trees-ns:trees',
+          },
+        };
+
+        const res = await handler(req, failingOptions);
+
+        expect(res.status).toBe(400);
+        expect(res.headers['Content-Type']).toBe('text/xml');
+        expect(res.body).not.toContain('secret_table');
+        expect(res.body).toContain('An internal error occurred while processing the request.');
+        expect(logger.error).toHaveBeenCalled();
+        const logged = logger.error.mock.calls.some((call) => call.includes(secretError));
+        expect(logged).toBe(true);
+      }
+    });
+
+    it('preserves specific error diagnostics when client-safe error is thrown', async () => {
+      class ClientSafeFailingProvider extends MockTreesProvider {
+        override async getFeatures(): Promise<GeoJSONFeature[]> {
+          const err = new Error('Custom validation error: invalid filter syntax');
+          (err as any).isClientSafe = true;
+          (err as any).code = 'InvalidParameterValue';
+          (err as any).locator = 'filter';
+          throw err;
+        }
+      }
+
+      for (const version of versions) {
+        const logger = {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+        };
+
+        const res = await dispatchWfsRequest(
+          {
+            method: 'GET',
+            query: {
+              request: 'GetFeature',
+              version,
+              typename: 'trees-ns:trees',
+            },
+          },
+          {
+            ...options,
+            provider: new ClientSafeFailingProvider(),
+            logger,
+          }
+        );
+
+        expect(res.status).toBe(400);
+        expect(res.body).toContain('Custom validation error: invalid filter syntax');
+        expect(res.body).not.toContain('An internal error occurred while processing the request.');
+        expect(logger.error).not.toHaveBeenCalled();
+      }
+    });
+  });
 });
+

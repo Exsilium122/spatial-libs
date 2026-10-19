@@ -2,7 +2,8 @@ import proj4 from 'proj4';
 
 export interface GeoJSONGeometry {
   type: string;
-  coordinates: any;
+  coordinates?: any;
+  geometries?: GeoJSONGeometry[];
 }
 
 export interface CoordinateTransformer {
@@ -10,6 +11,7 @@ export interface CoordinateTransformer {
   isSupported(srsName: string): boolean;
   getSupportedCodes(): string[];
   transformCoordinate(coords: [number, number], fromSrs: string, toSrs: string): [number, number];
+  transformCoordinate(coords: number[], fromSrs: string, toSrs: string): number[];
   transformGeometry(geometry: GeoJSONGeometry, fromSrs: string, toSrs: string): GeoJSONGeometry;
 }
 
@@ -216,22 +218,38 @@ export class CrsTransformerClass implements CoordinateTransformer {
   }
 
   /**
-   * Transforms a single 2D coordinate point [lon, lat] or [x, y] on-the-fly.
+   * Transforms coordinate point [lon, lat] or [x, y, ...extraOrdinates] on-the-fly.
+   * Reprojects [x, y] and preserves any extra ordinates (z, m) unchanged.
    */
   public transformCoordinate(
     coords: [number, number],
     fromSrs: string,
     toSrs: string
-  ): [number, number] {
+  ): [number, number];
+  public transformCoordinate(
+    coords: number[],
+    fromSrs: string,
+    toSrs: string
+  ): number[];
+  public transformCoordinate(
+    coords: number[],
+    fromSrs: string,
+    toSrs: string
+  ): number[] {
     const normFrom = this.normalizeSrs(fromSrs);
     const normTo = this.normalizeSrs(toSrs);
     
     if (normFrom === normTo) {
-      return [coords[0], coords[1]];
+      return coords.length > 2
+        ? [coords[0], coords[1], ...coords.slice(2)]
+        : [coords[0], coords[1]];
     }
 
     // proj4 expects [lon, lat] / [x, y] sequence for conversion
-    const result = proj4(normFrom, normTo, coords);
+    const result = proj4(normFrom, normTo, [coords[0], coords[1]]);
+    if (coords.length > 2) {
+      return [result[0], result[1], ...coords.slice(2)];
+    }
     return [result[0], result[1]];
   }
 
@@ -243,7 +261,7 @@ export class CrsTransformerClass implements CoordinateTransformer {
     fromSrs: string,
     toSrs: string
   ): GeoJSONGeometry {
-    if (!geometry || !geometry.coordinates) {
+    if (!geometry) {
       return geometry;
     }
 
@@ -254,9 +272,27 @@ export class CrsTransformerClass implements CoordinateTransformer {
       return geometry;
     }
 
+    if (geometry.type === 'GeometryCollection' && Array.isArray(geometry.geometries)) {
+      return {
+        type: 'GeometryCollection',
+        geometries: geometry.geometries.map((g: GeoJSONGeometry) =>
+          this.transformGeometry(g, normFrom, normTo)
+        ),
+      };
+    }
+
+    if (!geometry.coordinates) {
+      return geometry;
+    }
+
     const recurse = (coords: any): any => {
-      if (Array.isArray(coords) && coords.length === 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-        return this.transformCoordinate(coords as [number, number], normFrom, normTo);
+      if (
+        Array.isArray(coords) &&
+        coords.length >= 2 &&
+        typeof coords[0] === 'number' &&
+        typeof coords[1] === 'number'
+      ) {
+        return this.transformCoordinate(coords, normFrom, normTo);
       }
       if (Array.isArray(coords)) {
         return coords.map(recurse);

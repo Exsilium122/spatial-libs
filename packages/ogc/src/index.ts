@@ -66,6 +66,30 @@ function serializeQuery(params: Record<string, any>): string {
 }
 
 /**
+ * Checks whether an SRS identifier refers to WGS84 / CRS84 standard coordinates.
+ */
+function isWgs84Crs(srsName: string): boolean {
+  if (!srsName) return false;
+  const trimmed = srsName.trim();
+  if (!trimmed) return false;
+  if (
+    /crs84/i.test(trimmed) || 
+    /CRS:84/i.test(trimmed) || 
+    /OGC:1.3:CRS84/i.test(trimmed)
+  ) {
+    return true;
+  }
+  const epsgMatch = trimmed.match(/(?:EPSG|epsg\.xml|EPSG\/0\/)(?::|#)*(\d+)/i);
+  if (epsgMatch && epsgMatch[1] === '4326') {
+    return true;
+  }
+  if (trimmed === '4326' || trimmed === 'EPSG:4326') {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Creates a standard Express router configured with the OGC API Features handlers.
  */
 export default function createOgcRouter(options: OgcOptions): express.Router {
@@ -382,12 +406,25 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       }
 
       let bboxSrs = 'EPSG:4326';
-      if (req.query['bbox-crs'] && options.crsTransformer) {
+      if (req.query['bbox-crs'] !== undefined) {
+        if (Array.isArray(req.query['bbox-crs'])) {
+          return res.status(400).json({ error: 'Malformed bbox-crs parameter: duplicate parameters are not allowed.' });
+        }
         const reqBboxCrs = String(req.query['bbox-crs']);
-        if (options.crsTransformer.isSupported(reqBboxCrs)) {
-          bboxSrs = options.crsTransformer.normalizeSrs(reqBboxCrs);
+        if (options.crsTransformer) {
+          if (options.crsTransformer.isSupported(reqBboxCrs)) {
+            bboxSrs = options.crsTransformer.normalizeSrs(reqBboxCrs);
+          } else if (isWgs84Crs(reqBboxCrs)) {
+            bboxSrs = 'EPSG:4326';
+          } else {
+            return res.status(400).json({ error: `Unsupported bbox-crs requested: ${reqBboxCrs}` });
+          }
         } else {
-          return res.status(400).json({ error: `Unsupported bbox-crs requested: ${reqBboxCrs}` });
+          if (isWgs84Crs(reqBboxCrs)) {
+            bboxSrs = 'EPSG:4326';
+          } else {
+            return res.status(400).json({ error: `Unsupported bbox-crs requested: ${reqBboxCrs}` });
+          }
         }
       }
 
@@ -401,39 +438,66 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
       // Extract bounding box filter parameter
       let filterQuery: Record<string, any> = {};
-      if (req.query.bbox) {
-        const parts = String(req.query.bbox).split(',').map(Number);
-        if (parts.length === 4 && parts.every(n => !isNaN(n)) && options.crsTransformer) {
-          let minLon = parts[0];
-          let minLat = parts[1];
-          let maxLon = parts[2];
-          let maxLat = parts[3];
-
-          // If bbox-crs is NOT WGS84, we must transform the coordinates of the bbox back to WGS84 prior to the provider query
-          if (bboxSrs !== 'EPSG:4326') {
-            const minPt = options.crsTransformer.transformCoordinate([minLon, minLat], bboxSrs, 'EPSG:4326');
-            const maxPt = options.crsTransformer.transformCoordinate([maxLon, maxLat], bboxSrs, 'EPSG:4326');
-            minLon = minPt[0];
-            minLat = minPt[1];
-            maxLon = maxPt[0];
-            maxLat = maxPt[1];
-          }
-
-          filterQuery['geo.coordinates'] = {
-            $geoWithin: {
-              $geometry: {
-                type: 'Polygon',
-                coordinates: [[
-                  [minLon, minLat],
-                  [maxLon, minLat],
-                  [maxLon, maxLat],
-                  [minLon, maxLat],
-                  [minLon, minLat]
-                ]]
-              }
-            }
-          };
+      if (req.query.bbox !== undefined) {
+        if (Array.isArray(req.query.bbox)) {
+          return res.status(400).json({ error: 'Malformed bbox parameter: duplicate parameters are not allowed.' });
         }
+        const rawBbox = String(req.query.bbox).trim();
+        const rawParts = rawBbox.split(',');
+        if (rawParts.length !== 4) {
+          return res.status(400).json({ error: `Malformed bbox parameter: expected 4 comma-separated numbers, got ${rawParts.length}.` });
+        }
+
+        const parts: number[] = [];
+        for (const part of rawParts) {
+          const trimmed = part.trim();
+          if (trimmed === '' || trimmed.toLowerCase() === 'nan') {
+            return res.status(400).json({ error: `Malformed bbox parameter: "${part}" is not a valid number.` });
+          }
+          const num = Number(trimmed);
+          if (!Number.isFinite(num)) {
+            return res.status(400).json({ error: `Malformed bbox parameter: "${part}" is not a valid number.` });
+          }
+          parts.push(num);
+        }
+
+        let minLon = parts[0];
+        let minLat = parts[1];
+        let maxLon = parts[2];
+        let maxLat = parts[3];
+
+        if (minLat > maxLat) {
+          return res.status(400).json({ error: `Malformed bbox parameter: minLat (${minLat}) cannot be greater than maxLat (${maxLat}).` });
+        }
+
+        // If bbox-crs is NOT WGS84, we must transform the coordinates of the bbox back to WGS84 prior to the provider query
+        if (bboxSrs !== 'EPSG:4326' && options.crsTransformer) {
+          const minPt = options.crsTransformer.transformCoordinate([minLon, minLat], bboxSrs, 'EPSG:4326');
+          const maxPt = options.crsTransformer.transformCoordinate([maxLon, maxLat], bboxSrs, 'EPSG:4326');
+          minLon = minPt[0];
+          minLat = minPt[1];
+          maxLon = maxPt[0];
+          maxLat = maxPt[1];
+
+          if (minLat > maxLat) {
+            return res.status(400).json({ error: `Malformed bbox parameter: transformed minLat (${minLat}) cannot be greater than maxLat (${maxLat}).` });
+          }
+        }
+
+        filterQuery['geo.coordinates'] = {
+          $geoWithin: {
+            $geometry: {
+              type: 'Polygon',
+              coordinates: [[
+                [minLon, minLat],
+                [maxLon, minLat],
+                [maxLon, maxLat],
+                [minLon, maxLat],
+                [minLon, minLat]
+              ]]
+            }
+          }
+        };
       }
 
       // Validate and extract name filter parameter
