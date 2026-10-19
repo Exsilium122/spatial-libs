@@ -1,6 +1,22 @@
 import { buildXml } from './xmlHelper.js';
 import { GenericResponse } from './types.js';
 
+export const INTERNAL_ERROR_MESSAGE = 'An internal error occurred while processing the request.';
+
+export class WfsClientError extends Error {
+  readonly isClientSafe = true;
+  readonly code: string | number;
+  readonly locator: string;
+
+  constructor(message: string, code: string | number = 400, locator: string = 'WFS') {
+    super(message);
+    this.name = 'WfsClientError';
+    this.code = code;
+    this.locator = locator;
+    Object.setPrototypeOf(this, WfsClientError.prototype);
+  }
+}
+
 export function buildExceptionXml(code: string | number, locator: string, msg: string, version: string = '1.1.0'): string {
   // WFS 2.0.0 uses OwsExceptionReport, while older versions use ServiceExceptionReport
   if (version.startsWith('2.')) {
