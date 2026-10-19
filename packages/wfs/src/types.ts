@@ -51,6 +51,9 @@ export interface WfsOptions {
   provider: SpatialDataProvider;
   logger?: Logger;
   baseUrl: string;
+  /** Allowed Host header values (e.g. ['api.example.com', 'localhost:3000']), compared case-insensitively.
+   *  Only used when `baseUrl` is not absolute. */
+  trustedHosts?: string[];
   crsTransformer?: CoordinateTransformer; // Dynamic injection
   appUrl?: string; // Kept as optional fallback/backward compatibility if needed, but not enforced
   enabledVersions?: ('1.0.0' | '1.1.0' | '2.0.0' | '2.0.2')[];
