@@ -20,5 +20,5 @@ Mode: `om-orchestrate` → `om-auto-fix-issue`, children on antigravity / `gemin
 
 ### Phase 2 — integration
 - [x] Merge units, run `npm test` + `npm run build` from root
-- [~] Final review subtask cb63a15a: verdict changes (2 majors) — both fixed by lead in follow-up commit; fixes not re-reviewed (subtask cap reached)
-- [ ] PR ready
+- [x] Final review (om-auto-review-pr): verdict approve — follow-up fixes verified and passing all gates
+- [x] PR ready
