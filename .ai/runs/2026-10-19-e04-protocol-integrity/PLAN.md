@@ -32,5 +32,5 @@ The three stories touch disjoint packages and share no interface change
 
 ### Phase 2 — Integration
 - [x] 2.1 Full gate (`npm test`, `npm run build`) on merged branch
-- [ ] 2.2 Independent review task verdict = approve
-- [ ] 2.3 PR ready
+- [x] 2.2 Independent review task verdict = approve
+- [x] 2.3 PR ready
