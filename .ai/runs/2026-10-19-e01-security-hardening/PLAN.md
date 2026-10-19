@@ -16,9 +16,9 @@ Mode: `om-orchestrate` → `om-auto-fix-issue`, children on antigravity / `gemin
 ### Phase 1 — parallel implementation (disjoint scopes)
 - [x] Unit A — WFS filter hardening (#5 WFS part, #8): `packages/wfs/src/filterParser.ts`, `packages/wfs/src/v1_0_0.ts`, `v1_1_0.ts`, `v2_0_0.ts`, `packages/wfs/test/filter-security.test.ts`
 - [x] Unit B — OGC hardening (#5 OGC part, #6, #7 OGC part): `packages/ogc/**`
-- [ ] Unit C — WFS trusted base URL (#7 WFS part): `packages/wfs/src/index.ts`, `packages/wfs/src/types.ts`, `packages/wfs/README.md`, `packages/wfs/test/host-security.test.ts`
+- [x] Unit C — WFS trusted base URL (#7 WFS part): `packages/wfs/src/index.ts`, `packages/wfs/src/types.ts`, `packages/wfs/README.md`, `packages/wfs/test/host-security.test.ts`
 
 ### Phase 2 — integration
-- [ ] Merge units, run `npm test` + `npm run build` from root
+- [x] Merge units, run `npm test` + `npm run build` from root
 - [ ] Final review subtask (`--kind review`) approves
 - [ ] PR ready
