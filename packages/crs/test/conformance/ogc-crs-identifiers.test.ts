@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import CrsTransformer from '../../src/index.js';
-import { gap } from './gap.js';
 
 /**
  * CRS identifier forms the spatial protocols require servers to understand:
@@ -54,11 +53,11 @@ describe('OGC CRS identifiers understood by CrsTransformer.normalizeSrs', () => 
       expect(CrsTransformer.isSupported(id)).toBe(true);
     });
 
-    gap.each([
+    it.each([
       'urn:ogc:def:crs:EPSG:6.3:3006',
       'urn:x-ogc:def:crs:EPSG:6.11:4326',
       'http://www.opengis.net/def/crs/EPSG/9.9.1/3006',
-    ])('[GAP] OGC 07-092 versioned identifier %s resolves to its EPSG code, not the version number', (id) => {
+    ])('OGC 07-092 versioned identifier %s resolves to its EPSG code, not the version number', (id) => {
       expect(CrsTransformer.normalizeSrs(id)).toBe(`EPSG:${id.split(/[:/]/).pop()}`);
     });
   });

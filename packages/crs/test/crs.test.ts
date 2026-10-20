@@ -84,4 +84,39 @@ describe('CRS Transformer Tests', () => {
     expect(lon).toBeCloseTo(7.43863, 4);
     expect(lat).toBeCloseTo(46.95108, 4);
   });
+
+  describe('Regression: Anchored SRS normalization and trailing garbage rejection', () => {
+    it('rejects trailing garbage / CRLF and does not treat it as supported', () => {
+      const crlfAttack = 'http://www.opengis.net/def/crs/EPSG/0/4326%0D%0AX-Evil:%201';
+      expect(CrsTransformer.normalizeSrs(crlfAttack)).not.toBe('EPSG:4326');
+      expect(CrsTransformer.isSupported(crlfAttack)).toBe(false);
+
+      const rawCrlf = 'http://www.opengis.net/def/crs/EPSG/0/4326\r\nX-Evil: 1';
+      expect(CrsTransformer.normalizeSrs(rawCrlf)).not.toBe('EPSG:4326');
+      expect(CrsTransformer.isSupported(rawCrlf)).toBe(false);
+
+      const crs84Crlf = 'http://www.opengis.net/def/crs/OGC/1.3/CRS84%0D%0AX-Evil:%201';
+      expect(CrsTransformer.normalizeSrs(crs84Crlf)).not.toBe('EPSG:4326');
+      expect(CrsTransformer.isSupported(crs84Crlf)).toBe(false);
+    });
+
+    it('does not mistake EPSG/0/43260 for EPSG:4326', () => {
+      const id = 'http://www.opengis.net/def/crs/EPSG/0/43260';
+      expect(CrsTransformer.normalizeSrs(id)).toBe('EPSG:43260');
+      expect(CrsTransformer.isSupported(id)).toBe(false);
+
+      expect(CrsTransformer.normalizeSrs('EPSG/0/43260')).toBe('EPSG:43260');
+      expect(CrsTransformer.isSupported('EPSG/0/43260')).toBe(false);
+    });
+
+    it('correctly normalizes versioned 4326 URLs and URNs', () => {
+      const versionedUrl = 'http://www.opengis.net/def/crs/EPSG/9.9.1/4326';
+      expect(CrsTransformer.normalizeSrs(versionedUrl)).toBe('EPSG:4326');
+      expect(CrsTransformer.isSupported(versionedUrl)).toBe(true);
+
+      const versionedUrn = 'urn:ogc:def:crs:EPSG:6.3:4326';
+      expect(CrsTransformer.normalizeSrs(versionedUrn)).toBe('EPSG:4326');
+      expect(CrsTransformer.isSupported(versionedUrn)).toBe(true);
+    });
+  });
 });

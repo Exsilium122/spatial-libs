@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import CrsTransformer from '../../../crs/src/index.js';
-import { findAll, gap, RecordingProvider, startWfs, WfsServer } from './helpers.js';
+import { findAll, RecordingProvider, startWfs, WfsServer } from './helpers.js';
 
 /**
  * OpenGIS Web Feature Service Implementation Specification 1.1.0 (OGC 04-094)
@@ -44,14 +44,14 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
       expect(res.doc.WFS_Capabilities['@version']).toBe('1.0.0');
     });
 
-    gap('[GAP] AcceptVersions listing no supported version raises VersionNegotiationFailed', async () => {
+    it('[GAP] AcceptVersions listing no supported version raises VersionNegotiationFailed', async () => {
       const res = await wfs.get('service=WFS&request=GetCapabilities&AcceptVersions=0.5.0');
       expect(res.body).toContain('VersionNegotiationFailed');
     });
   });
 
   describe('§7.7 Exception reporting', () => {
-    gap('[GAP] errors are an OWS ExceptionReport version 1.1.0 with Exception/ExceptionText (not a 1.0 ServiceExceptionReport)', async () => {
+    it('[GAP] errors are an OWS ExceptionReport version 1.1.0 with Exception/ExceptionText (not a 1.0 ServiceExceptionReport)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature`);
       const report = res.doc.ExceptionReport ?? res.doc['ows:ExceptionReport'];
       expect(report['@version']).toBe('1.1.0');
@@ -108,7 +108,7 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
       expect(res.body).toContain('gml:LineStringPropertyType');
     });
 
-    gap('[GAP] without TYPENAME every feature type is described', async () => {
+    it('[GAP] without TYPENAME every feature type is described', async () => {
       const res = await wfs.get(`${KVP}&request=DescribeFeatureType`);
       expect(res.status).toBe(200);
       expect(res.body).toContain('trees');
@@ -140,7 +140,7 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
       expect(res.body).not.toContain('Oak');
     });
 
-    gap('[GAP] §9.2 resultType=hits returns an empty FeatureCollection carrying numberOfFeatures and timeStamp', async () => {
+    it('[GAP] §9.2 resultType=hits returns an empty FeatureCollection carrying numberOfFeatures and timeStamp', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&resultType=hits`);
       const fc = res.doc['wfs:FeatureCollection'];
       expect(fc['@numberOfFeatures']).toBe('3');
@@ -155,12 +155,12 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
       expect(findAll(res.doc, 'gml:featureMember')).toHaveLength(3);
     });
 
-    gap('[GAP] §9.2 maxFeatures=N truncates the result set after N features', async () => {
+    it('[GAP] §9.2 maxFeatures=N truncates the result set after N features', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&maxFeatures=2`);
       expect(findAll(res.doc, 'gml:featureMember')).toHaveLength(2);
     });
 
-    gap('[GAP] §14.7.3 SORTBY orders the features (name D = descending)', async () => {
+    it('[GAP] §14.7.3 SORTBY orders the features (name D = descending)', async () => {
       const res = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&sortBy=name%20D`);
       expect(findAll(res.doc, '@fid')).toEqual(['t2', 't1', 't3']);
     });
@@ -208,7 +208,7 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
         expect(bboxRing(provider)[0]).toEqual([10, 50]);
       });
 
-      gap('[GAP] the axis order follows the CRS suffix, not the magnitude of the values (EPSG:4326 short form = lon/lat)', async () => {
+      it('[GAP] the axis order follows the CRS suffix, not the magnitude of the values (EPSG:4326 short form = lon/lat)', async () => {
         await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=50,10,52,12,EPSG:4326`);
         expect(bboxRing(provider)[0]).toEqual([50, 10]);
       });

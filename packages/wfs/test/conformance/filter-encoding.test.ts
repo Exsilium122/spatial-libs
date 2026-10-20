@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { gap, RecordingProvider, startWfs, WfsServer } from './helpers.js';
+import { RecordingProvider, startWfs, WfsServer } from './helpers.js';
 
 /**
  * OGC Filter Encoding, as used by the WFS GetFeature FILTER parameter and XML wfs:Query bodies:
@@ -74,20 +74,20 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       expect(call).toMatchObject({ featureType: 'trees', filterQuery: { name: 'Oak' } });
     });
 
-    gap('[GAP] FES 1.1 §11.2 / FES 2.0 §7.7.3.2: matchCase="false" makes PropertyIsEqualTo case-insensitive', async () => {
+    it('[GAP] FES 1.1 §11.2 / FES 2.0 §7.7.3.2: matchCase="false" makes PropertyIsEqualTo case-insensitive', async () => {
       const { query } = await kvp(`<ogc:PropertyIsEqualTo matchCase="false"><ogc:PropertyName>name</ogc:PropertyName><ogc:Literal>oak</ogc:Literal></ogc:PropertyIsEqualTo>`);
       expect(query.name).not.toBe('oak');
       expect(query.name.$regex?.test('Oak')).toBe(true);
     });
 
-    gap('[GAP] FES 1.0 §5.2 / FES 2.0 §7.7: PropertyIsBetween is applied, not silently dropped', async () => {
+    it('[GAP] FES 1.0 §5.2 / FES 2.0 §7.7: PropertyIsBetween is applied, not silently dropped', async () => {
       const { query } = await kvp(
         `<ogc:PropertyIsBetween><ogc:PropertyName>height</ogc:PropertyName><ogc:LowerBoundary><ogc:Literal>10</ogc:Literal></ogc:LowerBoundary><ogc:UpperBoundary><ogc:Literal>20</ogc:Literal></ogc:UpperBoundary></ogc:PropertyIsBetween>`
       );
       expect(query).toEqual({ height: { $gte: 10, $lte: 20 } });
     });
 
-    gap('[GAP] FES 1.0 §5.2 / FES 2.0 §7.7: PropertyIsNull is applied, not silently dropped', async () => {
+    it('[GAP] FES 1.0 §5.2 / FES 2.0 §7.7: PropertyIsNull is applied, not silently dropped', async () => {
       const { query } = await kvp('<ogc:PropertyIsNull><ogc:PropertyName>height</ogc:PropertyName></ogc:PropertyIsNull>');
       expect(query).toEqual({ height: null });
     });
@@ -116,24 +116,24 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       expect(query.$or[1]).toEqual({ name: { $ne: 'Pine' } });
     });
 
-    gap('[GAP] the wildCard attribute defines the wildcard character (wildCard="#")', async () => {
+    it('[GAP] the wildCard attribute defines the wildcard character (wildCard="#")', async () => {
       const re = await like('wildCard="#" singleChar="." escape="!"', 'Oa#');
       expect(re.test('Oak')).toBe(true);
     });
 
-    gap('[GAP] the singleChar character matches exactly one character', async () => {
+    it('[GAP] the singleChar character matches exactly one character', async () => {
       const re = await like('wildCard="*" singleChar="." escape="!"', 'O.k');
       expect(re.test('Oak')).toBe(true);
       expect(re.test('Ok')).toBe(false);
     });
 
-    gap('[GAP] the escape (FES 1.x) / escapeChar (FES 2.0) character makes the next wildcard literal', async () => {
+    it('[GAP] the escape (FES 1.x) / escapeChar (FES 2.0) character makes the next wildcard literal', async () => {
       const re = await like('wildCard="*" singleChar="." escape="!"', 'A!*B');
       expect(re.test('A*B')).toBe(true);
       expect(re.test('AxyzB')).toBe(false);
     });
 
-    gap('[GAP] FES 1.1 §11.2 / FES 2.0 §7.7.3.2: matching is case-sensitive by default (matchCase defaults to true)', async () => {
+    it('[GAP] FES 1.1 §11.2 / FES 2.0 §7.7.3.2: matching is case-sensitive by default (matchCase defaults to true)', async () => {
       const re = await like('wildCard="*" singleChar="." escape="!"', 'Oa*');
       expect(re.test('oak')).toBe(false);
     });
@@ -191,7 +191,7 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       expect(query['geo.coordinates']).toBeDefined();
     });
 
-    gap('[GAP] FES 1.1 / FES 2.0: BBOX with a GML 3 gml:Envelope (lowerCorner / upperCorner) selects within the envelope', async () => {
+    it('[GAP] FES 1.1 / FES 2.0: BBOX with a GML 3 gml:Envelope (lowerCorner / upperCorner) selects within the envelope', async () => {
       const { query } = await kvp(
         '<ogc:BBOX><ogc:PropertyName>geo</ogc:PropertyName><gml:Envelope srsName="EPSG:4326"><gml:lowerCorner>10 50</gml:lowerCorner><gml:upperCorner>12 52</gml:upperCorner></gml:Envelope></ogc:BBOX>'
       );
@@ -213,7 +213,7 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
   });
 
   describe('Value references (FES 1.x PropertyName, FES 2.0 ValueReference — §7.4)', () => {
-    gap('[GAP] FES 2.0 §7.4: fes:ValueReference addresses the property (PropertyName was removed in FES 2.0)', async () => {
+    it('[GAP] FES 2.0 §7.4: fes:ValueReference addresses the property (PropertyName was removed in FES 2.0)', async () => {
       const { query } = await post(
         '<fes:PropertyIsEqualTo><fes:ValueReference>name</fes:ValueReference><fes:Literal>Oak</fes:Literal></fes:PropertyIsEqualTo>',
         '2.0.2'
@@ -221,7 +221,7 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       expect(query).toEqual({ name: 'Oak' });
     });
 
-    gap('[GAP] FES 1.1 §7.4 / FES 2.0 §7.4.4: a namespace-qualified XPath step (ns:name) is a valid property reference', async () => {
+    it('[GAP] FES 1.1 §7.4 / FES 2.0 §7.4.4: a namespace-qualified XPath step (ns:name) is a valid property reference', async () => {
       const { res, query } = await kvp(eq('ns:name', 'Oak'));
       expect(res.status).toBe(200);
       expect(Object.keys(query)).toHaveLength(1);

@@ -73,13 +73,11 @@ function isWgs84Crs(srsName: string): boolean {
   const trimmed = srsName.trim();
   if (!trimmed) return false;
   if (
-    /crs84/i.test(trimmed) || 
-    /CRS:84/i.test(trimmed) || 
-    /OGC:1.3:CRS84/i.test(trimmed)
+    /^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/)?ogc\/(?:[\d.]+\/)?|urn:(?:x-)?ogc:def:crs:OGC:(?:[\d.]+)?::?|ogc:)?crs:?84h?$/i.test(trimmed)
   ) {
     return true;
   }
-  const epsgMatch = trimmed.match(/(?:EPSG|epsg\.xml|EPSG\/0\/)(?::|#)*(\d+)/i);
+  const epsgMatch = trimmed.match(/^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/|gml\/srs\/)|urn:(?:x-)?ogc:def:crs:)?(?:EPSG|epsg\.xml)[:/#]+(?:[\d.]+[:/#]+)?(\d+)$/i);
   if (epsgMatch && epsgMatch[1] === '4326') {
     return true;
   }
@@ -87,6 +85,99 @@ function isWgs84Crs(srsName: string): boolean {
     return true;
   }
   return false;
+}
+
+function isValidRfc3339DateTime(str: string): boolean {
+  if (!/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i.test(str)) {
+    return false;
+  }
+  const t = Date.parse(str);
+  return !isNaN(t);
+}
+
+function validateDatetime(dt: string): boolean {
+  if (dt.includes('/')) {
+    const parts = dt.split('/');
+    if (parts.length !== 2) return false;
+    const [start, end] = parts;
+    const startOpen = start === '' || start === '..';
+    const endOpen = end === '' || end === '..';
+    if (startOpen && endOpen) return false;
+    let startTime = -Infinity;
+    let endTime = Infinity;
+    if (!startOpen) {
+      if (!isValidRfc3339DateTime(start)) return false;
+      startTime = Date.parse(start);
+    }
+    if (!endOpen) {
+      if (!isValidRfc3339DateTime(end)) return false;
+      endTime = Date.parse(end);
+    }
+    return startTime <= endTime;
+  } else {
+    return isValidRfc3339DateTime(dt);
+  }
+}
+
+function isLatLonEpsg4326(srs: string, rawCrs?: string): boolean {
+  if (!rawCrs) return false;
+  const trimmed = rawCrs.trim();
+  if (/CRS84/i.test(trimmed)) return false;
+  return (
+    /^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*def\/crs\/)?EPSG\/(?:[\d.]+\/)?4326$/i.test(trimmed) ||
+    /^(?:urn:(?:x-)?ogc:def:crs:EPSG:(?:[\d.]+:|:?)4326|EPSG:(?:[\d.]+:|:)4326)$/i.test(trimmed) ||
+    /^https?:\/\/(?:[a-zA-Z0-9.-]+\/)*gml\/srs\/epsg\.xml#4326$/i.test(trimmed)
+  );
+}
+
+function toCanonicalCrsUri(targetSrs: string, rawCrs?: string): string {
+  if (isLatLonEpsg4326(targetSrs, rawCrs)) {
+    return 'http://www.opengis.net/def/crs/EPSG/0/4326';
+  }
+  if (targetSrs === 'EPSG:4326' || !targetSrs) {
+    return 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+  }
+  if (targetSrs.toUpperCase().startsWith('EPSG:')) {
+    return 'http://www.opengis.net/def/crs/EPSG/0/' + targetSrs.slice(5);
+  }
+  return targetSrs;
+}
+
+function swapGeometryAxes(geom: any): any {
+  if (!geom) return null;
+  if (geom.type === 'GeometryCollection' && Array.isArray(geom.geometries)) {
+    return {
+      type: 'GeometryCollection',
+      geometries: geom.geometries.map(swapGeometryAxes)
+    };
+  }
+  const recurse = (coords: any): any => {
+    if (Array.isArray(coords) && coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+      return [coords[1], coords[0], ...coords.slice(2)];
+    }
+    if (Array.isArray(coords)) {
+      return coords.map(recurse);
+    }
+    return coords;
+  };
+  return {
+    ...geom,
+    coordinates: recurse(geom.coordinates)
+  };
+}
+
+function formatGeoJsonGeometry(geom: any, defaultType: string = 'Point'): any {
+  if (!geom) return null;
+  if (geom.type === 'GeometryCollection') {
+    return {
+      type: 'GeometryCollection',
+      geometries: Array.isArray(geom.geometries) ? geom.geometries : []
+    };
+  }
+  return {
+    type: geom.type || defaultType,
+    coordinates: geom.coordinates || []
+  };
 }
 
 /**
@@ -171,6 +262,12 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
           href: `${activeBase}/api`
         },
         {
+          rel: 'service-doc',
+          type: 'text/html',
+          title: 'API documentation',
+          href: `${activeBase}/api`
+        },
+        {
           rel: 'conformance',
           type: 'application/json',
           title: 'OGC API Conformance Declaration',
@@ -188,6 +285,9 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
   // 1.5. API Definition (GET /api)
   router.get('/api', (req: Request, res: Response) => {
+    if (req.headers.accept?.includes('text/html') && !req.headers.accept?.includes('application/vnd.oai.openapi+json')) {
+      return res.type('text/html').send('<!DOCTYPE html><html><head><title>OGC API - Features Service</title></head><body><h1>OGC API - Features Service</h1></body></html>');
+    }
     res.type('application/vnd.oai.openapi+json;version=3.0').json({
       openapi: '3.0.0',
       info: {
@@ -218,6 +318,35 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
             responses: {
               200: {
                 description: 'Metadata for collections'
+              }
+            }
+          }
+        },
+        '/collections/{collectionId}': {
+          get: {
+            responses: {
+              200: {
+                description: 'Metadata for a collection'
+              }
+            }
+          }
+        },
+        '/collections/{collectionId}/items': {
+          get: {
+            parameters: [
+              {
+                name: 'extra',
+                in: 'query',
+                style: 'form',
+                schema: {
+                  type: 'object',
+                  additionalProperties: true
+                }
+              }
+            ],
+            responses: {
+              200: {
+                description: 'Features in a collection'
               }
             }
           }
@@ -259,11 +388,15 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
       if (typeof provider.getCollectionsMetadata === 'function') {
         const raw = await provider.getCollectionsMetadata(req.user);
-        collections = raw.map(c => ({
-          ...c,
-          crs: (c as any).crs || getCollectionCrsList(),
-          storageCRS: (c as any).storageCRS || 'http://www.opengis.net/def/crs/OGC/1.3/CRS84'
-        }));
+        collections = raw.map(c => {
+          const sCrs = (c as any).storageCrs || (c as any).storageCRS || 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+          return {
+            ...c,
+            crs: (c as any).crs || getCollectionCrsList(),
+            storageCrs: sCrs,
+            storageCRS: sCrs
+          };
+        });
       } else {
         // Fallback: dynamically generate basic collection metadata using getBoundingBox
         const promises = validTypes.map(async (featureType) => {
@@ -272,8 +405,9 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
           return {
             id: featureType,
             title,
-            description: `Generic spatial ${featureType} dataset`,
+            description: `Spatial ${featureType} dataset`,
             crs: getCollectionCrsList(),
+            storageCrs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
             storageCRS: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
             extent: {
               spatial: {
@@ -331,8 +465,6 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       }
 
       const activeBase = getRequestBaseUrl(req);
-      const bbox = await provider.getBoundingBox(req.user, collectionId);
-      const title = collectionId.charAt(0).toUpperCase() + collectionId.slice(1).replace(/([A-Z])/g, ' $1');
 
       const getCollectionCrsList = () => {
         if (!options.crsTransformer) return ['http://www.opengis.net/def/crs/OGC/1.3/CRS84'];
@@ -344,11 +476,44 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         ];
       };
 
+      if (typeof provider.getCollectionsMetadata === 'function') {
+        const raw = await provider.getCollectionsMetadata(req.user);
+        const match = raw.find((c: any) => c.id === collectionId);
+        if (match) {
+          const sCrs = (match as any).storageCrs || (match as any).storageCRS || 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+          return res.json({
+            ...match,
+            crs: (match as any).crs || getCollectionCrsList(),
+            storageCrs: sCrs,
+            storageCRS: sCrs,
+            links: [
+              ...(match.links || []),
+              {
+                rel: 'self',
+                type: 'application/json',
+                title: `${match.title || collectionId} collection metadata`,
+                href: `${activeBase}/collections/${collectionId}`
+              },
+              {
+                rel: 'items',
+                type: 'application/geo+json',
+                title: `${match.title || collectionId} features (GeoJSON)`,
+                href: `${activeBase}/collections/${collectionId}/items`
+              }
+            ]
+          });
+        }
+      }
+
+      const bbox = await provider.getBoundingBox(req.user, collectionId);
+      const title = collectionId.charAt(0).toUpperCase() + collectionId.slice(1).replace(/([A-Z])/g, ' $1');
+
       res.json({
         id: collectionId,
         title,
         description: `Spatial ${collectionId} dataset`,
         crs: getCollectionCrsList(),
+        storageCrs: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
         storageCRS: 'http://www.opengis.net/def/crs/OGC/1.3/CRS84',
         extent: {
           spatial: {
@@ -395,13 +560,18 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       // Parse optional crs and bbox-crs parameters
       let targetSrs = 'EPSG:4326';
       let doReproject = false;
-      if (req.query.crs && options.crsTransformer) {
-        const reqCrs = String(req.query.crs);
-        if (options.crsTransformer.isSupported(reqCrs)) {
-          targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
-          doReproject = true;
-        } else {
-          return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+      if (req.query.crs !== undefined) {
+        if (Array.isArray(req.query.crs)) {
+          return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
+        }
+        if (options.crsTransformer) {
+          const reqCrs = String(req.query.crs);
+          if (options.crsTransformer.isSupported(reqCrs)) {
+            targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
+            doReproject = true;
+          } else {
+            return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+          }
         }
       }
 
@@ -429,12 +599,25 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       }
 
       // Parse pagination limits
+      if (req.query.limit !== undefined) {
+        const rawLimit = String(req.query.limit).trim();
+        if (!/^\d+$/.test(rawLimit) || parseInt(rawLimit, 10) < 1) {
+          return res.status(400).json({ error: `Invalid limit parameter: "${req.query.limit}" must be a positive integer.` });
+        }
+      }
       let limit = parseInt(String(req.query.limit || defaultLimit), 10);
       if (isNaN(limit) || limit < 1) limit = defaultLimit;
       if (limit > maxLimit) limit = maxLimit;
 
       let offset = parseInt(String(req.query.offset || req.query.startindex || 0), 10);
       if (isNaN(offset) || offset < 0) offset = 0;
+
+      // Validate datetime parameter
+      if (req.query.datetime !== undefined) {
+        if (typeof req.query.datetime !== 'string' || !validateDatetime(req.query.datetime)) {
+          return res.status(400).json({ error: `Invalid datetime parameter: "${req.query.datetime}" is not a valid RFC 3339 datetime or interval.` });
+        }
+      }
 
       // Extract bounding box filter parameter
       let filterQuery: Record<string, any> = {};
@@ -444,8 +627,8 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         }
         const rawBbox = String(req.query.bbox).trim();
         const rawParts = rawBbox.split(',');
-        if (rawParts.length !== 4) {
-          return res.status(400).json({ error: `Malformed bbox parameter: expected 4 comma-separated numbers, got ${rawParts.length}.` });
+        if (rawParts.length !== 4 && rawParts.length !== 6) {
+          return res.status(400).json({ error: `Malformed bbox parameter: expected 4 or 6 comma-separated numbers, got ${rawParts.length}.` });
         }
 
         const parts: number[] = [];
@@ -461,13 +644,35 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
           parts.push(num);
         }
 
-        let minLon = parts[0];
-        let minLat = parts[1];
-        let maxLon = parts[2];
-        let maxLat = parts[3];
+        let minLon: number, minLat: number, maxLon: number, maxLat: number;
+        if (rawParts.length === 6) {
+          minLon = parts[0];
+          minLat = parts[1];
+          maxLon = parts[3];
+          maxLat = parts[4];
+        } else {
+          if (options.crsTransformer && req.query['bbox-crs'] && isLatLonEpsg4326(bboxSrs, String(req.query['bbox-crs']))) {
+            minLat = parts[0];
+            minLon = parts[1];
+            maxLat = parts[2];
+            maxLon = parts[3];
+          } else {
+            minLon = parts[0];
+            minLat = parts[1];
+            maxLon = parts[2];
+            maxLat = parts[3];
+          }
+        }
 
         if (minLat > maxLat) {
           return res.status(400).json({ error: `Malformed bbox parameter: minLat (${minLat}) cannot be greater than maxLat (${maxLat}).` });
+        }
+
+        // CRS84 latitude bounds check (|lat| <= 90)
+        if (bboxSrs === 'EPSG:4326') {
+          if (Math.abs(minLat) > 90 || Math.abs(maxLat) > 90) {
+            return res.status(400).json({ error: `Malformed bbox parameter: latitude coordinates must be within [-90, 90].` });
+          }
         }
 
         // If bbox-crs is NOT WGS84, we must transform the coordinates of the bbox back to WGS84 prior to the provider query
@@ -484,20 +689,46 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
           }
         }
 
-        filterQuery['geo.coordinates'] = {
-          $geoWithin: {
-            $geometry: {
-              type: 'Polygon',
-              coordinates: [[
-                [minLon, minLat],
-                [maxLon, minLat],
-                [maxLon, maxLat],
-                [minLon, maxLat],
-                [minLon, minLat]
-              ]]
+        if (minLon > maxLon) {
+          filterQuery['geo.coordinates'] = {
+            $geoWithin: {
+              $geometry: {
+                type: 'MultiPolygon',
+                coordinates: [
+                  [[
+                    [minLon, minLat],
+                    [180, minLat],
+                    [180, maxLat],
+                    [minLon, maxLat],
+                    [minLon, minLat]
+                  ]],
+                  [[
+                    [-180, minLat],
+                    [maxLon, minLat],
+                    [maxLon, maxLat],
+                    [-180, maxLat],
+                    [-180, minLat]
+                  ]]
+                ]
+              }
             }
-          }
-        };
+          };
+        } else {
+          filterQuery['geo.coordinates'] = {
+            $geoWithin: {
+              $geometry: {
+                type: 'Polygon',
+                coordinates: [[
+                  [minLon, minLat],
+                  [maxLon, minLat],
+                  [maxLon, maxLat],
+                  [minLon, maxLat],
+                  [minLon, minLat]
+                ]]
+              }
+            }
+          };
+        }
       }
 
       // Validate and extract name filter parameter
@@ -537,16 +768,18 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
       const features = paginatedFeatures.map((feature) => {
         let geom = feature.geometry;
-        if (doReproject && options.crsTransformer) {
-          geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
+        if (geom) {
+          if (doReproject && options.crsTransformer) {
+            geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
+          }
+          if (isLatLonEpsg4326(targetSrs, req.query.crs ? String(req.query.crs) : '')) {
+            geom = swapGeometryAxes(geom);
+          }
         }
         return {
           type: 'Feature',
           id: `${collectionId}_${feature.id.toString()}`,
-          geometry: {
-            type: geom?.type || geomType,
-            coordinates: geom?.coordinates || []
-          },
+          geometry: geom ? formatGeoJsonGeometry(geom, geomType) : null,
           properties: {
             ...feature.properties
           }
@@ -620,12 +853,106 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       };
 
       if (doReproject) {
-        fcResponse.crs = req.query.crs;
+        fcResponse.crs = toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined);
+      }
+
+      if (options.crsTransformer) {
+        const activeCrsUri = doReproject
+          ? toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined)
+          : 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+        res.setHeader('Content-Crs', `<${activeCrsUri}>`);
       }
 
       res.type('application/geo+json').json(fcResponse);
     } catch (err) {
       if (logger) logger.error(`OGC Items error for ${collectionId}:`, err);
+      next(err);
+    }
+  });
+
+  // 6. Single Feature (GET /collections/:collectionId/items/:featureId)
+  router.get('/collections/:collectionId/items/:featureId', async (req: Request, res: Response, next: NextFunction) => {
+    const { collectionId, featureId } = req.params;
+    try {
+      const validTypes = await provider.getSupportedTypes(req.user);
+      if (!validTypes.includes(collectionId)) {
+        return res.status(404).json({ error: `Collection "${collectionId}" not found.` });
+      }
+
+      let targetSrs = 'EPSG:4326';
+      let doReproject = false;
+      if (req.query.crs !== undefined) {
+        if (Array.isArray(req.query.crs)) {
+          return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
+        }
+        if (options.crsTransformer) {
+          const reqCrs = String(req.query.crs);
+          if (options.crsTransformer.isSupported(reqCrs)) {
+            targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
+            doReproject = true;
+          } else {
+            return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+          }
+        }
+      }
+
+      const activeBase = getRequestBaseUrl(req);
+      const prefix = `${collectionId}_`;
+      const rawId = featureId.startsWith(prefix) ? featureId.slice(prefix.length) : featureId;
+
+      const candidates = await provider.getFeatures(req.user, collectionId, [rawId, featureId]);
+      const matched = candidates.find(
+        (f) => String(f.id) === rawId || String(f.id) === featureId || `${collectionId}_${f.id}` === featureId
+      );
+
+      if (!matched) {
+        return res.status(404).json({ error: `Feature "${featureId}" not found in collection "${collectionId}".` });
+      }
+
+      const geomType = (typeof provider.getGeometryType === 'function')
+        ? await provider.getGeometryType(req.user, collectionId)
+        : 'Point';
+
+      let geom = matched.geometry;
+      if (geom) {
+        if (doReproject && options.crsTransformer) {
+          geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
+        }
+        if (isLatLonEpsg4326(targetSrs, req.query.crs ? String(req.query.crs) : '')) {
+          geom = swapGeometryAxes(geom);
+        }
+      }
+
+      const responseFeature = {
+        type: 'Feature',
+        id: featureId,
+        geometry: geom ? formatGeoJsonGeometry(geom, geomType) : null,
+        properties: { ...matched.properties },
+        links: [
+          {
+            rel: 'self',
+            type: 'application/geo+json',
+            title: 'This feature',
+            href: `${activeBase}/collections/${collectionId}/items/${featureId}`
+          },
+          {
+            rel: 'collection',
+            type: 'application/json',
+            title: `${collectionId} collection metadata`,
+            href: `${activeBase}/collections/${collectionId}`
+          }
+        ]
+      };
+
+      if (options.crsTransformer) {
+        const activeCrsUri = doReproject
+          ? toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined)
+          : 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+        res.setHeader('Content-Crs', `<${activeCrsUri}>`);
+      }
+      res.type('application/geo+json').json(responseFeature);
+    } catch (err) {
+      if (logger) logger.error(`OGC Single Feature error for ${collectionId}/${featureId}:`, err);
       next(err);
     }
   });

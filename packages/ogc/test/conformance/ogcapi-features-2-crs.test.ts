@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import CrsTransformer from '../../../crs/src/index.js';
-import { CRS84, gap, MemoryProvider, OgcServer, startOgc } from './helpers.js';
+import { CRS84, MemoryProvider, OgcServer, startOgc } from './helpers.js';
 
 /**
  * OGC API - Features - Part 2: Coordinate Reference Systems by Reference (OGC 18-058r1)
@@ -66,7 +66,7 @@ describe('OGC API - Features - Part 2: CRS by Reference (OGC 18-058r1)', () => {
       expect(list.collections[0].crs).toContain(CRS84);
     });
 
-    gap('[GAP] /req/crs/fc-md-storageCrs: the storage CRS is advertised as "storageCrs" (currently "storageCRS")', async () => {
+    it('/req/crs/fc-md-storageCrs: the storage CRS is advertised as "storageCrs" (currently "storageCRS")', async () => {
       const { body } = await ogc.json('/collections/forests');
       expect(body.storageCrs).toBe(CRS84);
     });
@@ -116,7 +116,7 @@ describe('OGC API - Features - Part 2: CRS by Reference (OGC 18-058r1)', () => {
       expect(provider.calls).toHaveLength(0);
     });
 
-    gap('[GAP] /req/crs/fc-bbox-crs-action: bbox-crs=EPSG/0/4326 is read in that CRS\'s latitude/longitude axis order', async () => {
+    it('/req/crs/fc-bbox-crs-action: bbox-crs=EPSG/0/4326 is read in that CRS\'s latitude/longitude axis order', async () => {
       await ogc.get(`/collections/forests/items?bbox=60,15,61,16&bbox-crs=${EPSG4326}`);
       const ring = provider.lastCall().filterQuery['geo.coordinates'].$geoWithin.$geometry.coordinates[0];
       expect(ring[0]).toEqual([15, 60]);
@@ -149,7 +149,7 @@ describe('OGC API - Features - Part 2: CRS by Reference (OGC 18-058r1)', () => {
       expect(provider.calls).toHaveLength(0);
     });
 
-    gap('[GAP] /req/crs/fc-crs-valid-value A / fc-crs-action: crs=EPSG/0/4326 is either rejected (not listed) or presented in latitude/longitude order', async () => {
+    it('/req/crs/fc-crs-valid-value A / fc-crs-action: crs=EPSG/0/4326 is either rejected (not listed) or presented in latitude/longitude order', async () => {
       const res = await ogc.get(`/collections/forests/items?crs=${EPSG4326}`);
       if (res.status !== 400) {
         const body: any = await res.json();
@@ -157,14 +157,14 @@ describe('OGC API - Features - Part 2: CRS by Reference (OGC 18-058r1)', () => {
       }
     });
 
-    gap('[GAP] /req/crs/fc-crs-definition: the crs parameter is supported on the single feature resource', async () => {
+    it('/req/crs/fc-crs-definition: the crs parameter is supported on the single feature resource', async () => {
       const { body } = await ogc.json(`/collections/forests/items/forests_forest1?crs=${SWEREF99}`);
       expect(Math.round(body.geometry.coordinates[0])).toBe(527467);
     });
   });
 
   describe('6.5 Content-Crs response header', () => {
-    gap('[GAP] /req/crs/ogc-crs-header, /req/crs/ogc-crs-header-value: feature responses assert their CRS as Content-Crs: <uri>', async () => {
+    it('/req/crs/ogc-crs-header, /req/crs/ogc-crs-header-value: feature responses assert their CRS as Content-Crs: <uri>', async () => {
       expect((await ogc.get('/collections/forests/items')).headers.get('content-crs')).toBe(`<${CRS84}>`);
       expect((await ogc.get(`/collections/forests/items?crs=${SWEREF99}`)).headers.get('content-crs')).toBe(`<${SWEREF99}>`);
     });

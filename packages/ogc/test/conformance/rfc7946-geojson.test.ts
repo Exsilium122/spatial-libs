@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { gap, MemoryProvider, OgcServer, startOgc } from './helpers.js';
+import { MemoryProvider, OgcServer, startOgc } from './helpers.js';
 
 /**
  * RFC 7946 — The GeoJSON Format (IETF, August 2016)
@@ -135,13 +135,13 @@ describe('RFC 7946 GeoJSON output of /collections/{collectionId}/items', () => {
     for (const ring of f.geometry.coordinates) expect(ring[ring.length - 1]).toEqual(ring[0]);
   });
 
-  gap('[GAP] §3.1.8: a GeometryCollection keeps its "geometries" member and has no "coordinates"', async () => {
+  it('§3.1.8: a GeometryCollection keeps its "geometries" member and has no "coordinates"', async () => {
     const f = await byKind('collection');
     assertGeometry(f.geometry);
     expect(f.geometry).toEqual(geometries.collection);
   });
 
-  gap('[GAP] §3.2: an unlocated feature has "geometry": null (not a Point without coordinates)', async () => {
+  it('§3.2: an unlocated feature has "geometry": null (not a Point without coordinates)', async () => {
     const [f] = (await items('unlocated')).features;
     expect(f.geometry).toBeNull();
   });

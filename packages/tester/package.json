@@ -39,7 +39,7 @@
   "scripts": {
     "build": "tsc && esbuild src/index.ts --bundle --minify --platform=node --format=esm --packages=external --outfile=dist/index.js",
     "start": "node dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run --pool=forks"
   },
   "dependencies": {
     "axios": "^1.20.0",

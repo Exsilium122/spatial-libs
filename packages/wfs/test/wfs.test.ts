@@ -155,6 +155,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
         const req = {
           method: 'GET' as const,
           query: {
+            service: 'WFS',
             request: 'GetFeature',
             version,
             typename: 'trees-ns:trees',
@@ -163,7 +164,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
 
         const res = await dispatchWfsRequest(req, failingOptions);
 
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(500);
         expect(res.headers['Content-Type']).toBe('text/xml');
         expect(res.body).not.toContain('secret_table');
         expect(res.body).toContain('An internal error occurred while processing the request.');
@@ -182,6 +183,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
         const req = {
           method: 'GET' as const,
           query: {
+            service: 'WFS',
             request: 'GetFeature',
             version,
           },
@@ -227,7 +229,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
 
         const res = await handler(req, failingOptions);
 
-        expect(res.status).toBe(400);
+        expect(res.status).toBe(500);
         expect(res.headers['Content-Type']).toBe('text/xml');
         expect(res.body).not.toContain('secret_table');
         expect(res.body).toContain('An internal error occurred while processing the request.');
@@ -259,6 +261,7 @@ describe('WFS Library - @spatial-api/wfs', () => {
           {
             method: 'GET',
             query: {
+              service: 'WFS',
               request: 'GetFeature',
               version,
               typename: 'trees-ns:trees',
@@ -276,6 +279,216 @@ describe('WFS Library - @spatial-api/wfs', () => {
         expect(res.body).not.toContain('An internal error occurred while processing the request.');
         expect(logger.error).not.toHaveBeenCalled();
       }
+    });
+  });
+
+  describe('Review Findings Regression Tests (PR23 findings C, D, E, F)', () => {
+    // Finding C: GetFeatureById stored query handles null-geometry and Polygon features returning 200 XML
+    describe('Finding C: GetFeatureById geometry handling', () => {
+      class StoredQueryProvider extends MockTreesProvider {
+        override async getFeatures(context: any, featureType: string, fids?: string[]): Promise<GeoJSONFeature[]> {
+          const features: GeoJSONFeature[] = [
+            {
+              id: 'poly-1',
+              geometry: {
+                type: 'Polygon',
+                coordinates: [
+                  [[10.0, 50.0], [12.0, 50.0], [12.0, 52.0], [10.0, 52.0], [10.0, 50.0]]
+                ]
+              },
+              properties: { name: 'Park Area' }
+            },
+            {
+              id: 'null-geom-1',
+              geometry: null as any,
+              properties: { name: 'Non-spatial Asset' }
+            }
+          ];
+          if (fids && fids.length > 0) {
+            return features.filter(f => fids.includes(String(f.id)));
+          }
+          return features;
+        }
+      }
+
+      it('returns 200 XML for a Polygon feature via GetFeatureById', async () => {
+        const sqOptions = { ...options, provider: new StoredQueryProvider() };
+        const req = {
+          method: 'GET' as const,
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            STOREDQUERY_ID: 'http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById',
+            ID: 'poly-1'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, sqOptions);
+        expect(res.status).toBe(200);
+        expect(res.headers['Content-Type']).toContain('application/gml+xml');
+        expect(res.body).toContain('gml:Polygon');
+        expect(res.body).toContain('gml:exterior');
+        expect(res.body).toContain('gml:LinearRing');
+        expect(res.body).toContain('gml:posList');
+        expect(res.body).toContain('Park Area');
+      });
+
+      it('returns 200 XML and omits the geometry property for a null-geometry feature via GetFeatureById', async () => {
+        const sqOptions = { ...options, provider: new StoredQueryProvider() };
+        const req = {
+          method: 'GET' as const,
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            STOREDQUERY_ID: 'http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById',
+            ID: 'null-geom-1'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, sqOptions);
+        expect(res.status).toBe(200);
+        expect(res.headers['Content-Type']).toContain('application/gml+xml');
+        expect(res.body).not.toContain(':geo');
+        expect(res.body).not.toContain('gml:Point');
+        expect(res.body).not.toContain('gml:Polygon');
+        expect(res.body).toContain('Non-spatial Asset');
+      });
+    });
+
+    // Finding D: BBOX with EPSG:25832 is interpreted easting/northing
+    describe('Finding D: BBOX projected CRS axis order', () => {
+      it('interprets BBOX with EPSG:25832 as easting/northing (x/y)', async () => {
+        let capturedFilterQuery: any = null;
+        class BboxProvider extends MockTreesProvider {
+          override async getFeatures(context: any, featureType: string, fids?: string[], filterQuery?: any): Promise<GeoJSONFeature[]> {
+            capturedFilterQuery = filterQuery;
+            return [];
+          }
+        }
+
+        const bboxOptions = { ...options, provider: new BboxProvider() };
+        const req = {
+          method: 'GET' as const,
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            TYPENAMES: 'trees-ns:trees',
+            BBOX: '500000,5700000,501000,5701000,EPSG:25832'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, bboxOptions);
+        expect(res.status).toBe(200);
+        expect(capturedFilterQuery).toBeDefined();
+        const ring = capturedFilterQuery['geo.coordinates'].$geoWithin.$geometry.coordinates[0];
+        // Coordinates must be easting (minLon=500000), northing (minLat=5700000)
+        expect(ring[0]).toEqual([500000, 5700000]);
+        expect(ring[1]).toEqual([501000, 5700000]);
+        expect(ring[2]).toEqual([501000, 5701000]);
+        expect(ring[3]).toEqual([500000, 5701000]);
+        expect(ring[4]).toEqual([500000, 5700000]);
+      });
+
+      it.each(['2.0.0', '1.1.0'].flatMap((version) => [
+        [version, 'urn:ogc:def:crs:EPSG::4326', [20, 10]],
+        [version, 'urn:x-ogc:def:crs:EPSG:4326', [20, 10]],
+        [version, 'http://www.opengis.net/def/crs/EPSG/0/4326', [20, 10]],
+        [version, 'urn:ogc:def:crs:EPSG::43260', [10, 20]],
+        [version, 'http://www.opengis.net/def/crs/EPSG/0/24326', [10, 20]],
+      ]))('WFS %s treats BBOX CRS %s as lat/lon only when it is exactly EPSG 4326', async (version, crs, firstCorner) => {
+        let capturedFilterQuery: any = null;
+        class BboxProvider extends MockTreesProvider {
+          override async getFeatures(context: any, featureType: string, fids?: string[], filterQuery?: any): Promise<GeoJSONFeature[]> {
+            capturedFilterQuery = filterQuery;
+            return [];
+          }
+        }
+
+        const res = await dispatchWfsRequest({
+          method: 'GET',
+          query: {
+            SERVICE: 'WFS',
+            VERSION: version,
+            REQUEST: 'GetFeature',
+            TYPENAMES: 'trees-ns:trees',
+            TYPENAME: 'trees-ns:trees',
+            BBOX: `10,20,11,21,${crs}`
+          }
+        }, { ...options, provider: new BboxProvider() });
+        expect(res.status).toBe(200);
+        const ring = capturedFilterQuery['geo.coordinates'].$geoWithin.$geometry.coordinates[0];
+        expect(ring[0]).toEqual(firstCorner);
+      });
+    });
+
+    // Finding E: dispatchWfsRequest called directly returns 500 on throwing provider and MissingParameterValue without SERVICE
+    describe('Finding E: dispatchWfsRequest error handling and validation without Express', () => {
+      it('returns 500 when called directly (no Express) with a throwing provider', async () => {
+        class ThrowingProvider extends MockTreesProvider {
+          override async getFeatures(): Promise<GeoJSONFeature[]> {
+            throw new Error('Database unreachable');
+          }
+        }
+
+        const req = {
+          method: 'GET' as const,
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            TYPENAMES: 'trees-ns:trees'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, { ...options, provider: new ThrowingProvider() });
+        expect(res.status).toBe(500);
+        expect(res.body).toContain('OperationProcessingFailed');
+      });
+
+      it('returns MissingParameterValue for service when called directly without SERVICE', async () => {
+        const req = {
+          method: 'GET' as const,
+          query: {
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            TYPENAMES: 'trees-ns:trees'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, options);
+        expect(res.status).toBe(400);
+        expect(res.body).toContain('MissingParameterValue');
+        expect(res.body).toContain('locator="service"');
+      });
+    });
+
+    // Finding F: ListStoredQueries lists all provider types
+    describe('Finding F: ListStoredQueries lists all provider types', () => {
+      it('lists all provider types under wfs:ReturnFeatureType in ListStoredQueries', async () => {
+        class MultiTypeProvider extends MockTreesProvider {
+          override async getSupportedTypes(): Promise<string[]> {
+            return ['trees', 'rivers', 'roads'];
+          }
+        }
+
+        const req = {
+          method: 'GET' as const,
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'ListStoredQueries'
+          }
+        };
+
+        const res = await dispatchWfsRequest(req, { ...options, provider: new MultiTypeProvider() });
+        expect(res.status).toBe(200);
+        expect(res.body).toContain('<wfs:ReturnFeatureType>trees-ns:trees</wfs:ReturnFeatureType>');
+        expect(res.body).toContain('<wfs:ReturnFeatureType>trees-ns:rivers</wfs:ReturnFeatureType>');
+        expect(res.body).toContain('<wfs:ReturnFeatureType>trees-ns:roads</wfs:ReturnFeatureType>');
+      });
     });
   });
 });
