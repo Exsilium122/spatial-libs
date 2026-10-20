@@ -43,7 +43,7 @@ const libraries = [
     async smoke(mod) {
       assert.equal(typeof mod.default({ provider, baseUrl: 'https://example.com/wfs' }), 'function');
       const res = await mod.dispatchWfsRequest(
-        { method: 'GET', query: { REQUEST: 'GetCapabilities', VERSION: '2.0.0' } },
+        { method: 'GET', query: { SERVICE: 'WFS', REQUEST: 'GetCapabilities', VERSION: '2.0.0' } },
         { provider, baseUrl: 'https://example.com/wfs' }
       );
       assert.equal(res.status, 200);
