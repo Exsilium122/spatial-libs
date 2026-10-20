@@ -16,6 +16,143 @@ function getResponseTimestamp(): string {
   return cachedTimestampStr;
 }
 
+function formatGmlGeometry(
+  geom: any,
+  featureId: string | number,
+  srsName: string,
+  isLatFirstOrder: boolean
+): Record<string, any> | null {
+  if (!geom || !geom.coordinates || !geom.type) {
+    return null;
+  }
+
+  const { type, coordinates: coords } = geom;
+
+  if (type === 'Point') {
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    const posStr = isLatFirstOrder
+      ? `${coords[1]} ${coords[0]}`
+      : `${coords[0]} ${coords[1]}`;
+    return {
+      'gml:Point': {
+        '@gml:id': `p_${featureId.toString()}`,
+        '@srsName': srsName,
+        'gml:pos': posStr,
+      },
+    };
+  }
+
+  const formatRing = (ring: any[]) =>
+    ring.map((coor: any) => (isLatFirstOrder ? `${coor[1]} ${coor[0]}` : `${coor[0]} ${coor[1]}`)).join(' ');
+
+  if (type === 'LineString') {
+    if (!Array.isArray(coords)) return null;
+    const posListStr = formatRing(coords);
+    return {
+      'gml:LineString': {
+        '@gml:id': `l_${featureId.toString()}`,
+        '@srsName': srsName,
+        'gml:posList': posListStr,
+      },
+    };
+  }
+
+  if (type === 'Polygon') {
+    if (!Array.isArray(coords) || coords.length === 0) return null;
+    const exterior = coords[0] ? {
+      'gml:LinearRing': {
+        'gml:posList': formatRing(coords[0]),
+      },
+    } : undefined;
+
+    const interiorRings = coords.slice(1);
+    const interior = interiorRings.length > 0
+      ? interiorRings.map((ring: any[]) => ({
+          'gml:LinearRing': {
+            'gml:posList': formatRing(ring),
+          },
+        }))
+      : undefined;
+
+    const polyObj: Record<string, any> = {
+      '@gml:id': `poly_${featureId.toString()}`,
+      '@srsName': srsName,
+    };
+    if (exterior) {
+      polyObj['gml:exterior'] = exterior;
+    }
+    if (interior) {
+      polyObj['gml:interior'] = interior.length === 1 ? interior[0] : interior;
+    }
+    return {
+      'gml:Polygon': polyObj,
+    };
+  }
+
+  if (type === 'MultiPoint') {
+    if (!Array.isArray(coords)) return null;
+    return {
+      'gml:MultiPoint': {
+        '@gml:id': `mp_${featureId.toString()}`,
+        '@srsName': srsName,
+        'gml:pointMember': coords.map((pt: any, i: number) => ({
+          'gml:Point': {
+            '@gml:id': `p_${featureId}_${i}`,
+            'gml:pos': isLatFirstOrder ? `${pt[1]} ${pt[0]}` : `${pt[0]} ${pt[1]}`,
+          },
+        })),
+      },
+    };
+  }
+
+  if (type === 'MultiLineString') {
+    if (!Array.isArray(coords)) return null;
+    return {
+      'gml:MultiCurve': {
+        '@gml:id': `mc_${featureId.toString()}`,
+        '@srsName': srsName,
+        'gml:curveMember': coords.map((line: any, i: number) => ({
+          'gml:LineString': {
+            '@gml:id': `l_${featureId}_${i}`,
+            'gml:posList': formatRing(line),
+          },
+        })),
+      },
+    };
+  }
+
+  if (type === 'MultiPolygon') {
+    if (!Array.isArray(coords)) return null;
+    return {
+      'gml:MultiSurface': {
+        '@gml:id': `ms_${featureId.toString()}`,
+        '@srsName': srsName,
+        'gml:surfaceMember': coords.map((polyCoords: any, i: number) => {
+          const ext = polyCoords[0] ? {
+            'gml:LinearRing': {
+              'gml:posList': formatRing(polyCoords[0]),
+            },
+          } : undefined;
+          const inRings = polyCoords.slice(1);
+          const intObj = inRings.length > 0 ? inRings.map((r: any[]) => ({
+            'gml:LinearRing': {
+              'gml:posList': formatRing(r),
+            },
+          })) : undefined;
+          const p: Record<string, any> = {
+            '@gml:id': `poly_${featureId}_${i}`,
+          };
+          if (ext) p['gml:exterior'] = ext;
+          if (intObj) p['gml:interior'] = intObj.length === 1 ? intObj[0] : intObj;
+          return { 'gml:Polygon': p };
+        }),
+      },
+    };
+  }
+
+  return null;
+}
+
 export async function handleWfs200(
   req: GenericRequest,
   options: WfsOptions
@@ -66,7 +203,7 @@ export async function handleWfs200(
             {
               '@id': 'http://www.opengis.net/def/query/OGC-WFS/0/GetFeatureById',
               'wfs:Title': 'Get feature by identifier',
-              'wfs:ReturnFeatureType': `${nsPrefix}:trees`,
+              'wfs:ReturnFeatureType': (await provider.getSupportedTypes(req.user)).map((t: string) => `${nsPrefix}:${t}`),
             }
           ]
         }
@@ -382,33 +519,13 @@ export async function handleWfs200(
           }
 
           const geom = foundFeature.geometry;
-          const coords = geom?.coordinates;
-          const isLineString = geom?.type === 'LineString';
-          let gmlGeo;
           const responseSrsName = 'urn:ogc:def:crs:EPSG::4326';
-          if (isLineString) {
-            const posListStr = coords.map((coor: any) => `${coor[1]} ${coor[0]}`).join(' ');
-            gmlGeo = {
-              'gml:LineString': {
-                '@gml:id': `l_${foundFeature.id.toString()}`,
-                '@srsName': responseSrsName,
-                'gml:posList': posListStr,
-              },
-            };
-          } else {
-            const posStr = `${coords[1]} ${coords[0]}`;
-            gmlGeo = {
-              'gml:Point': {
-                '@gml:id': `p_${foundFeature.id.toString()}`,
-                '@srsName': responseSrsName,
-                'gml:pos': posStr,
-              },
-            };
-          }
+          const gmlGeo = geom ? formatGmlGeometry(geom, foundFeature.id, responseSrsName, true) : null;
 
-          const featureProps: Record<string, any> = {
-            [`${nsPrefix}:geo`]: gmlGeo,
-          };
+          const featureProps: Record<string, any> = {};
+          if (gmlGeo) {
+            featureProps[`${nsPrefix}:geo`] = gmlGeo;
+          }
           for (const [k, v] of Object.entries(foundFeature.properties || {})) {
             featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
           }
@@ -455,16 +572,11 @@ export async function handleWfs200(
           const parts = String(query.BBOX).split(',');
           const coords = parts.slice(0, 4).map(Number);
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
-            let isLatFirst = true;
+            let isLatFirst = false;
             if (parts.length >= 5) {
-              const bboxCrs = parts[4].trim().toUpperCase();
-              if (bboxCrs.includes('CRS84')) {
-                isLatFirst = false;
-              } else if (bboxCrs.includes('EPSG::3857') || bboxCrs.includes('EPSG:3857') || bboxCrs.includes('EPSG::3006') || bboxCrs.includes('EPSG:3006')) {
-                isLatFirst = false;
-              } else {
-                isLatFirst = true;
-              }
+              const bboxCrs = parts[4].trim();
+              const isUrn4326 = /(?:urn:ogc:def:crs:EPSG|urn:x-ogc:def:crs:EPSG|http:\/\/www\.opengis\.net\/def\/crs\/EPSG)/i.test(bboxCrs) && bboxCrs.includes('4326');
+              isLatFirst = isUrn4326;
             } else {
               // DefaultCRS in WFS 2.0 is urn:ogc:def:crs:EPSG::4326 (lat/lon per Table 8 note c)
               isLatFirst = true;
@@ -667,58 +779,27 @@ export async function handleWfs200(
 
       returnedFeatures.forEach((feature) => {
         let geom = feature.geometry;
-        if (doReproject && options.crsTransformer) {
+        if (doReproject && options.crsTransformer && geom) {
           geom = options.crsTransformer.transformGeometry(geom, 'EPSG:4326', targetSrs);
         }
 
-        const coords = geom?.coordinates;
-        if (coords) {
-          const isLineString = geom?.type === 'LineString';
-          let gmlGeo;
+        const gmlGeo = geom ? formatGmlGeometry(geom, feature.id, responseSrsName, isLatFirst(targetSrs)) : null;
 
-          if (isLineString) {
-            const posListStr = coords.map((coor: any) => {
-              return isLatFirst(targetSrs)
-                ? `${coor[1]} ${coor[0]}`
-                : `${coor[0]} ${coor[1]}`;
-            }).join(' ');
-
-            gmlGeo = {
-              'gml:LineString': {
-                '@gml:id': `l_${feature.id.toString()}`,
-                '@srsName': responseSrsName,
-                'gml:posList': posListStr,
-              },
-            };
-          } else {
-            const posStr = isLatFirst(targetSrs)
-              ? `${coords[1]} ${coords[0]}`
-              : `${coords[0]} ${coords[1]}`;
-
-            gmlGeo = {
-              'gml:Point': {
-                '@gml:id': `p_${feature.id.toString()}`,
-                '@srsName': responseSrsName,
-                'gml:pos': posStr,
-              },
-            };
-          }
-
-          const featureProps: Record<string, any> = {
-            [`${nsPrefix}:geo`]: gmlGeo
-          };
-
-          for (const [k, v] of Object.entries(feature.properties || {})) {
-            featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
-          }
-
-          xmlData['wfs:FeatureCollection']['wfs:member'].push({
-            [`${nsPrefix}:${cleanType}`]: {
-              '@gml:id': `${cleanType}_${feature.id.toString()}`,
-              ...featureProps
-            },
-          });
+        const featureProps: Record<string, any> = {};
+        if (gmlGeo) {
+          featureProps[`${nsPrefix}:geo`] = gmlGeo;
         }
+
+        for (const [k, v] of Object.entries(feature.properties || {})) {
+          featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
+        }
+
+        xmlData['wfs:FeatureCollection']['wfs:member'].push({
+          [`${nsPrefix}:${cleanType}`]: {
+            '@gml:id': `${cleanType}_${feature.id.toString()}`,
+            ...featureProps
+          },
+        });
       });
 
       const xml = buildXml(xmlData);
@@ -738,6 +819,6 @@ export async function handleWfs200(
       return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, version);
     }
     if (logger) logger.error(`WFS ${version} error:`, err);
-    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version, 400);
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version, 500);
   }
 }

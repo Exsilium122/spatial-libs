@@ -78,6 +78,7 @@ export function buildExceptionResponse(
   status: number = 400
 ): GenericResponse {
   if (code === 'NotFound' && status === 400) status = 404;
+  if (code === 'OperationProcessingFailed' && status === 400) status = 500;
   const body = buildExceptionXml(code, locator, msg, version);
   return {
     status,
