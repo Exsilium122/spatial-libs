@@ -89,18 +89,29 @@ export async function dispatchWfsRequest(
   req: GenericRequest,
   options: WfsOptions
 ): Promise<GenericResponse> {
-  const query = req.query || {};
-  const request = (query.REQUEST || query.request || query.Request || '').toLowerCase();
-  const rawService = query.SERVICE ?? query.service ?? query.Service;
-  const rawVersion = query.VERSION ?? query.version ?? query.Version;
-  const rawAcceptVersions = query.ACCEPTVERSIONS ?? query.acceptVersions ?? query.AcceptVersions;
+  const method = (req.method || 'GET').toUpperCase();
+  const query: Record<string, any> = {};
+  for (const k of Object.keys(req.query || {})) {
+    query[k.toUpperCase()] = req.query[k];
+  }
+  const request = (query.REQUEST || '').toLowerCase();
+  const rawService = query.SERVICE;
+  const rawVersion = query.VERSION;
+  const rawAcceptVersions = query.ACCEPTVERSIONS;
 
   let version = rawVersion ? String(rawVersion) : '';
 
   try {
-    // Check SERVICE parameter if provided
-    if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
-      return buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
+    if (method === 'GET' && request) {
+      if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
+        return buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
+      }
+      if (rawService === undefined) {
+        return buildExceptionResponse('MissingParameterValue', 'service', 'Missing mandatory SERVICE parameter', '2.0.0');
+      }
+      if (request !== 'getcapabilities' && !rawVersion) {
+        return buildExceptionResponse('MissingParameterValue', 'version', 'Missing mandatory VERSION parameter', '2.0.0');
+      }
     }
 
     if (request === 'getcapabilities') {
@@ -186,7 +197,7 @@ export async function dispatchWfsRequest(
     if (options.logger) {
       options.logger.error('WFS dispatch error:', err);
     }
-    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version || '2.0.2', 400);
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, version || '2.0.2', 500);
   }
 }
 
@@ -269,32 +280,6 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
 
   const requestHandler = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const q = (req as any).normalizedQuery || req.query || {};
-      const request = (q.REQUEST || q.request || '').toLowerCase();
-      const rawService = q.SERVICE ?? q.service;
-      const rawVersion = q.VERSION ?? q.version;
-
-      if (req.method === 'GET' && request) {
-        if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
-          const errRes = buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
-          res.status(errRes.status);
-          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
-          return res.send(errRes.body);
-        }
-        if (rawService === undefined) {
-          const errRes = buildExceptionResponse('MissingParameterValue', 'service', 'Missing mandatory SERVICE parameter', '2.0.0');
-          res.status(errRes.status);
-          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
-          return res.send(errRes.body);
-        }
-        if (request !== 'getcapabilities' && !rawVersion) {
-          const errRes = buildExceptionResponse('MissingParameterValue', 'version', 'Missing mandatory VERSION parameter', '2.0.0');
-          res.status(errRes.status);
-          for (const [k, v] of Object.entries(errRes.headers)) res.setHeader(k, v);
-          return res.send(errRes.body);
-        }
-      }
-
       const genericReq: GenericRequest = {
         method: req.method as any,
         query: (req as any).normalizedQuery || req.query,
@@ -305,12 +290,7 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
 
       const result = await dispatchWfsRequest(genericReq, options);
 
-      let status = result.status;
-      if (result.body && result.body.includes('OperationProcessingFailed') && status === 400) {
-        status = 500;
-      }
-
-      res.status(status);
+      res.status(result.status);
       for (const [k, v] of Object.entries(result.headers)) {
         res.setHeader(k, v);
       }
@@ -321,7 +301,7 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
       }
       const genericResponse = (error instanceof WfsClientError || error?.isClientSafe)
         ? buildExceptionResponse(error.code || 400, error.locator || 'WFS', error.message, '1.1.0')
-        : buildExceptionResponse(301, 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0');
+        : buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, '2.0.2', 500);
 
       res.status(genericResponse.status);
       for (const [k, v] of Object.entries(genericResponse.headers)) {

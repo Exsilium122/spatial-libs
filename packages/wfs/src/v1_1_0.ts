@@ -562,6 +562,6 @@ export async function handleWfs110(
       return buildExceptionResponse(err.code || 400, err.locator || 'WFS', err.message, '1.1.0');
     }
     if (logger) logger.error('WFS 1.1.0 error:', err);
-    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0', 400);
+    return buildExceptionResponse('OperationProcessingFailed', 'WFS', INTERNAL_ERROR_MESSAGE, '1.1.0', 500);
   }
 }
