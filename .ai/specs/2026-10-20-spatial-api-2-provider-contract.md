@@ -2,7 +2,7 @@
 
 > Source brief: [`briefs/2026-10-20-spatial-api-2-provider-contract.md`](briefs/2026-10-20-spatial-api-2-provider-contract.md). Its Resolved-unknowns table is binding and is not repeated here.
 > Prerequisite: epic E is merged before Phase 1 starts. E closes the `[GAP]` conformance tests and runs as cezar task `1f6ea890`, branch `cez/1f6ea890`.
-> Follow-ups: Spec 2 (registry, extensions, `@spatial-api/express` host, mounting rules, landing page, standalone export endpoint); one spec per protocol or format package.
+> Follow-ups: [Spec 2](2026-10-20-spatial-api-2-registry-and-host.md) (registry, extensions, `@spatial-api/server` + `@spatial-api/express` host, mounting rules, landing page, standalone export endpoint, and a built-in GeoJSON `FeatureEncoder` in core); one spec per protocol or format package.
 
 ## 📝 TLDR
 
@@ -278,7 +278,8 @@ interface FeatureEncoder {
 // Shared request/response for every service (replaces both GenericRequest/GenericResponse)
 interface SpatialRequest  { method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
                             path: string /* relative to the mount */; query: Record<string, string | string[]>;
-                            headers: Record<string, string>; body?: string | Uint8Array; baseUrl: string /* absolute */;
+                            headers: Record<string, string>; body?: string | Uint8Array;
+                            baseUrl: string /* absolute, or path-absolute when the Host header is untrusted (E01-S03 fallback) */;
                             user?: unknown; pathParams?: Record<string, string>; signal?: AbortSignal }
 interface SpatialResponse { status: number; headers: Record<string, string>; body: string | Uint8Array | AsyncIterable<Uint8Array> }
 
@@ -289,6 +290,12 @@ createWfsService(o: { provider: SpatialProvider; logger?: Logger | false; crsTra
 createOgcService(o: { provider: SpatialProvider; logger?: Logger | false; crsTransformer?: CoordinateTransformer;
                       defaultLimit?: number; maxLimit?: number; encoders?: FeatureEncoder[]; limits?: ServiceLimits }): SpatialService;
 interface SpatialService { handle(req: SpatialRequest): Promise<SpatialResponse>; describe(): ServiceInfo }
+interface ServiceInfo {
+  protocol: string; versions: string[]; write: boolean; extensions: string[]; formats: string[];
+  entryPoint: string;                                   // relative URL of the protocol's own advertising (GetCapabilities / landing)
+  parameters: { name: string; in: 'query' | 'path'; operations?: string[]; required: boolean;
+                description: string; example?: string; source: 'standard' | 'extension' | 'vendor'; specUrl?: string }[];
+}   // generated from the same tables the parsers use, so it cannot drift; rendered by Spec 2's landing page
 interface ServiceLimits  { maxScan?: number /* default 10 000 features examined for residual filtering */;
                            providerTimeoutMs?: number /* default none; on expiry context.signal aborts and the call fails as internal error */ }
 ```
@@ -451,7 +458,8 @@ interface ServiceLimits  { maxScan?: number /* default 10 000 features examined 
 16. Parse POST XML bodies inside the service with `fast-xml-parser`. Remove the `express` and `express-xml-bodyparser` peer dependencies and `createWfsRouter`. Add `test/harness.ts` (Express to `SpatialRequest`, devDependency only).
     - In the same step, switch `packages/tester/test/e2e.test.ts` (it imports `createWfsRouter` today) to the wfs harness.
     - Bump wfs to `2.0.0-next.0`.
-    - Rewrite the wfs section of `BACKWARD_COMPATIBILITY.md` and the wfs README.
+    - Rewrite the wfs section of `BACKWARD_COMPATIBILITY.md`, and rewrite the wfs README per the README checklist (standalone use via `createWfsService` and an adapter example).
+    - Populate `describe().parameters` from the KVP tables the parsers use.
 
     Test: all WFS suites and tester e2e green, and `Filter_Capabilities` lists exactly parsed ∩ (native ∪ in-memory) for the configured provider.
 
@@ -459,7 +467,8 @@ interface ServiceLimits  { maxScan?: number /* default 10 000 features examined 
 17. Extract `createOgcService` from `createOgcRouter`. The routes become an internal path matcher, and the `bbox`, `datetime` and `name` parameters become tree nodes evaluated through `core/internal` `query()`. Remove `express` and `createOgcRouter`, and add `test/harness.ts`.
     - In the same step, switch tester e2e's OGC usage to the harness.
     - Bump ogc to `2.0.0-next.0`.
-    - Rewrite the ogc section of `BACKWARD_COMPATIBILITY.md` and the ogc README.
+    - Rewrite the ogc section of `BACKWARD_COMPATIBILITY.md`, and rewrite the ogc README per the README checklist.
+    - Populate `describe().parameters`.
 
     Test: OGC Part 1/2 and RFC 7946 suites, `security.test.ts` and tester e2e green.
 18. Read collections through `describeCollections`: extent, storage CRS, geometry type (replaces the `'Point'` default) and properties. Test: the Part 1 collection-metadata requirements, and Part 2 `storageCrs`.
@@ -470,6 +479,11 @@ interface ServiceLimits  { maxScan?: number /* default 10 000 features examined 
     - `docs/migration-2.0.md`, including the Mongo translator example.
     - `BACKWARD_COMPATIBILITY.md` gains a core section, including `core/internal` marked as non-contract.
     - The package lists in `AGENTS.md`.
+    - **Root and package READMEs**, following the README checklist in [Spec 2 → Documentation](2026-10-20-spatial-api-2-registry-and-host.md#-documentation): what the package is, whether it can be used on its own or needs companions or is tooling-only, install, usage without a host, provider requirements, parameters, conformance.
+      - `core`'s README is written for provider authors and package authors, and states that `core/internal` is not for users.
+      - `crs-transformer`'s README states it is a plug-in for `wfs`/`ogc`, not a general projection library.
+      - `tester`'s README states it is a CLI.
+      - The root README gains the package matrix.
     - A **standards catalogue** section in `docs/standards/README.md`:
       - Supported, and Planned: A, B and C, each with its package name.
       - Future, not researched: WMS, WMTS, OGC API Tiles/MVT, the image stitching cache proxy, OGC API Records/CSW, SensorThings, EDR, GeoParquet.
