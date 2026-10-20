@@ -392,12 +392,13 @@ describe('WFS Library - @spatial-api/wfs', () => {
         expect(ring[4]).toEqual([500000, 5700000]);
       });
 
-      it.each([
-        ['urn:ogc:def:crs:EPSG::4326', [20, 10]],
-        ['http://www.opengis.net/def/crs/EPSG/0/4326', [20, 10]],
-        ['urn:ogc:def:crs:EPSG::43260', [10, 20]],
-        ['http://www.opengis.net/def/crs/EPSG/0/24326', [10, 20]],
-      ])('treats BBOX CRS %s as lat/lon only when it is exactly EPSG 4326', async (crs, firstCorner) => {
+      it.each(['2.0.0', '1.1.0'].flatMap((version) => [
+        [version, 'urn:ogc:def:crs:EPSG::4326', [20, 10]],
+        [version, 'urn:x-ogc:def:crs:EPSG:4326', [20, 10]],
+        [version, 'http://www.opengis.net/def/crs/EPSG/0/4326', [20, 10]],
+        [version, 'urn:ogc:def:crs:EPSG::43260', [10, 20]],
+        [version, 'http://www.opengis.net/def/crs/EPSG/0/24326', [10, 20]],
+      ]))('WFS %s treats BBOX CRS %s as lat/lon only when it is exactly EPSG 4326', async (version, crs, firstCorner) => {
         let capturedFilterQuery: any = null;
         class BboxProvider extends MockTreesProvider {
           override async getFeatures(context: any, featureType: string, fids?: string[], filterQuery?: any): Promise<GeoJSONFeature[]> {
@@ -410,9 +411,10 @@ describe('WFS Library - @spatial-api/wfs', () => {
           method: 'GET',
           query: {
             SERVICE: 'WFS',
-            VERSION: '2.0.0',
+            VERSION: version,
             REQUEST: 'GetFeature',
             TYPENAMES: 'trees-ns:trees',
+            TYPENAME: 'trees-ns:trees',
             BBOX: `10,20,11,21,${crs}`
           }
         }, { ...options, provider: new BboxProvider() });

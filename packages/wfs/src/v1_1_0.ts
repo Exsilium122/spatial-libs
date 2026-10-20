@@ -302,7 +302,7 @@ export async function handleWfs110(
           const coords = parts.slice(0, 4).map(Number);
           const bboxCrs = parts[4] ? parts[4].trim() : '';
           if (coords.length === 4 && coords.every(n => !isNaN(n))) {
-            const isUrnLatLon = /(?:urn:ogc:def:crs:EPSG|urn:x-ogc:def:crs:EPSG|http:\/\/www\.opengis\.net\/def\/crs\/EPSG)/i.test(bboxCrs) && bboxCrs.includes('4326');
+            const isUrnLatLon = /^(?:urn:(?:x-)?ogc:def:crs:EPSG:(?:[\d.]*:)?4326|https?:\/\/www\.opengis\.net\/def\/crs\/EPSG\/[\d.]+\/4326)$/i.test(bboxCrs);
             let minLon: number, minLat: number, maxLon: number, maxLat: number;
             if (isUrnLatLon) {
               minLat = coords[0];

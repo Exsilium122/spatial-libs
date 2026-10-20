@@ -575,7 +575,7 @@ export async function handleWfs200(
             let isLatFirst = false;
             if (parts.length >= 5) {
               const bboxCrs = parts[4].trim();
-              isLatFirst = /^(?:urn:(?:x-)?ogc:def:crs:EPSG:[\d.]*:4326|https?:\/\/www\.opengis\.net\/def\/crs\/EPSG\/[\d.]+\/4326)$/i.test(bboxCrs);
+              isLatFirst = /^(?:urn:(?:x-)?ogc:def:crs:EPSG:(?:[\d.]*:)?4326|https?:\/\/www\.opengis\.net\/def\/crs\/EPSG\/[\d.]+\/4326)$/i.test(bboxCrs);
             } else {
               // DefaultCRS in WFS 2.0 is urn:ogc:def:crs:EPSG::4326 (lat/lon per Table 8 note c)
               isLatFirst = true;
