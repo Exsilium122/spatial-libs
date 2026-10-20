@@ -20,6 +20,45 @@ const provider = {
 
 const libraries = [
   {
+    name: '@spatial-api/core',
+    dir: 'packages/core',
+    exports: [
+      'ProviderError',
+      'NotFoundError',
+      'InvalidParameterError',
+      'NotSupportedError',
+      'ConflictError',
+      'ForbiddenError',
+      'UnavailableError',
+      'ProviderContractError',
+      'validateProvider',
+      'VALID_FILTER_OPERATORS',
+      'createConsoleLogger',
+      'normalizeLogger',
+      'NOOP_LOGGER',
+    ],
+    smoke(mod) {
+      assert.equal(typeof mod.validateProvider, 'function');
+      assert.equal(typeof mod.createConsoleLogger, 'function');
+      const logger = mod.createConsoleLogger();
+      assert.equal(typeof logger.info, 'function');
+
+      const conformingProvider = {
+        capabilities: {
+          paging: true,
+          count: 'exact',
+          sorting: true,
+          propertySelection: true,
+          crs: { native: [] },
+          filter: { operators: ['='] },
+        },
+        describeCollections: async () => [],
+        getFeatures: async () => ({ features: [] }),
+      };
+      assert.doesNotThrow(() => mod.validateProvider(conformingProvider));
+    },
+  },
+  {
     name: '@spatial-api/crs-transformer',
     dir: 'packages/crs',
     exports: ['default', 'CrsTransformer', 'CrsTransformerClass'],
@@ -91,6 +130,30 @@ for (const lib of libraries) {
   });
   await check(`${lib.name} published files`, () => checkPackedFiles(lib.dir));
 }
+
+// Subpath export verification for @spatial-api/core
+await check('@spatial-api/core subpath declarations', () => {
+  for (const file of [
+    'dist/conformance/index.d.ts',
+    'dist/conformance/index.d.cts',
+    'dist/internal/index.d.ts',
+    'dist/internal/index.d.cts',
+  ]) {
+    assert.ok(existsSync(path.join(root, 'packages/core', file)), `missing ${file} (run npm run build first)`);
+  }
+});
+await check('@spatial-api/core/conformance ESM import and CJS require', async () => {
+  const esmMod = await import('@spatial-api/core/conformance');
+  assert.ok(typeof esmMod === 'object');
+  const cjsMod = require('@spatial-api/core/conformance');
+  assert.ok(typeof cjsMod === 'object');
+});
+await check('@spatial-api/core/internal ESM import and CJS require', async () => {
+  const esmMod = await import('@spatial-api/core/internal');
+  assert.ok(esmMod.VALID_FILTER_OPERATORS instanceof Set);
+  const cjsMod = require('@spatial-api/core/internal');
+  assert.ok(cjsMod.VALID_FILTER_OPERATORS instanceof Set);
+});
 
 await check('@spatial-api/tester CLI prints usage and exits 0 without a target', () => {
   const cli = path.join(root, 'packages/tester/dist/index.js');

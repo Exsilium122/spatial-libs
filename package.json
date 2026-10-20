@@ -13,7 +13,11 @@
   },
   "homepage": "https://github.com/Exsilium122/spatial-libs#readme",
   "workspaces": [
-    "packages/*"
+    "packages/core",
+    "packages/crs",
+    "packages/wfs",
+    "packages/ogc",
+    "packages/tester"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
