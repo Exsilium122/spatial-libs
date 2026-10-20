@@ -391,6 +391,35 @@ describe('WFS Library - @spatial-api/wfs', () => {
         expect(ring[3]).toEqual([500000, 5701000]);
         expect(ring[4]).toEqual([500000, 5700000]);
       });
+
+      it.each([
+        ['urn:ogc:def:crs:EPSG::4326', [20, 10]],
+        ['http://www.opengis.net/def/crs/EPSG/0/4326', [20, 10]],
+        ['urn:ogc:def:crs:EPSG::43260', [10, 20]],
+        ['http://www.opengis.net/def/crs/EPSG/0/24326', [10, 20]],
+      ])('treats BBOX CRS %s as lat/lon only when it is exactly EPSG 4326', async (crs, firstCorner) => {
+        let capturedFilterQuery: any = null;
+        class BboxProvider extends MockTreesProvider {
+          override async getFeatures(context: any, featureType: string, fids?: string[], filterQuery?: any): Promise<GeoJSONFeature[]> {
+            capturedFilterQuery = filterQuery;
+            return [];
+          }
+        }
+
+        const res = await dispatchWfsRequest({
+          method: 'GET',
+          query: {
+            SERVICE: 'WFS',
+            VERSION: '2.0.0',
+            REQUEST: 'GetFeature',
+            TYPENAMES: 'trees-ns:trees',
+            BBOX: `10,20,11,21,${crs}`
+          }
+        }, { ...options, provider: new BboxProvider() });
+        expect(res.status).toBe(200);
+        const ring = capturedFilterQuery['geo.coordinates'].$geoWithin.$geometry.coordinates[0];
+        expect(ring[0]).toEqual(firstCorner);
+      });
     });
 
     // Finding E: dispatchWfsRequest called directly returns 500 on throwing provider and MissingParameterValue without SERVICE
