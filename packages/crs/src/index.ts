@@ -183,17 +183,15 @@ export class CrsTransformerClass implements CoordinateTransformer {
     
     // 2. Check for OGC API Core CRS84 synonyms
     if (
-      /crs84/i.test(trimmed) || 
-      /CRS:84/i.test(trimmed) || 
-      /OGC:1.3:CRS84/i.test(trimmed)
+      /^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/)?ogc\/(?:[\d.]+\/)?|urn:(?:x-)?ogc:def:crs:OGC:(?:[\d.]+)?::?|ogc:)?crs:?84h?$/i.test(trimmed)
     ) {
       return 'EPSG:4326';
     }
 
     // 3. Capture standard EPSG digit grouping (including versioned URNs/URLs e.g. EPSG:6.3:3006 or EPSG/9.9.1/3006)
-    const epsgMatch = trimmed.match(/(?:EPSG|epsg\.xml)(?:[:/#]+(?:[\d.]+)?[:/#]+|(?::|#)+)(\d+)\b/i);
+    const epsgMatch = trimmed.match(/^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/|gml\/srs\/)|urn:(?:x-)?ogc:def:crs:)?(?:EPSG|epsg\.xml)[:/#]+(?:[\d.]+[:/#]+)?(\d+)$/i);
     if (epsgMatch && epsgMatch[1]) {
-      return `EPSG:${epsgMatch[1]}`;
+      return 'EPSG:' + epsgMatch[1];
     }
 
     return trimmed;
