@@ -486,7 +486,18 @@ interface ServiceLimits  { maxScan?: number /* default 10 000 features examined 
       - The root README gains the package matrix.
     - A **standards catalogue** section in `docs/standards/README.md`:
       - Supported, and Planned: A, B and C, each with its package name.
+      - Planned formats (C): Shapefile, GeoPackage, KML + KMZ, FlatGeobuf, CSV + WKT, DXF (export only), GPX, GML (standalone); GeoJSON and GeoJSONSeq (RFC 8142) are built into core.
       - Future, not researched: WMS, WMTS, OGC API Tiles/MVT, the image stitching cache proxy, OGC API Records/CSW, SensorThings, EDR, GeoParquet.
+      - Catalogue only, with the reason stated:
+        - DWG: proprietary; the only implementations are the paid ODA SDK and GPL-3.0 LibreDWG, which isn't MIT-compatible
+        - DGN: V8 is proprietary
+        - IFC: BIM, not GIS features
+        - CityGML/CityJSON: needs semantic 3D models
+        - MapInfo MIF/MID: legacy
+        - SpatiaLite: superseded by GeoPackage
+        - OSM XML/PBF: a different data model
+        - Esri File Geodatabase: proprietary
+        - TopoJSON: can't stream
     - A provider-author guide covering capabilities, the filter tree, writes, the kit and authorization.
 
     Test: link check, if one is configured; otherwise a review.

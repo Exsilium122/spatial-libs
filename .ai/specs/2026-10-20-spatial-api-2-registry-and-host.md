@@ -31,7 +31,7 @@
 
 | Package | Role | Depends on |
 |---|---|---|
-| `@spatial-api/core` (extended) | Registry (`registerSpatialPackage`, `listRegistrations`) on a `globalThis` symbol, plus a built-in GeoJSON `FeatureEncoder` | — |
+| `@spatial-api/core` (extended) | Registry (`registerSpatialPackage`, `listRegistrations`) on a `globalThis` symbol, plus built-in `geojson` and `geojsonseq` (RFC 8142) `FeatureEncoder`s | — |
 | `@spatial-api/wfs`, `@spatial-api/ogc` (extended) | An `extensions` option and the `WfsExtension` / `OgcExtension` interfaces; each registers itself on import | core |
 | `@spatial-api/crs-transformer` (extended) | Registers itself as the default transformer on import | core |
 | `@spatial-api/server` (new) | Framework-neutral host: config normalization, mount planning, path matching and params, provider resolvers, base URL and trusted hosts, body limit, logging, landing page (JSON + HTML), and the `export` service | core |
@@ -96,6 +96,7 @@ interface ProtocolCreateOptions {
 }
 type Registration =
   | (RegistrationBase & { kind: 'protocol'; write: boolean;
+      optIn?: boolean /* true for 'export': never auto-mounted, like write protocols, but gated by enableExport */;
       base?: { id: string; range: string /* semver range of the base package, e.g. '^2.0.0' */ };
       defaultPath: string /* = id */;
       parameters: ServiceInfo['parameters'] /* static metadata; landing page for resolver mounts */;
@@ -180,6 +181,7 @@ interface ServerConfig {
   provider?: ProviderRef;
   protocols?: Record<string, ProviderRef | MountSpec | (ProviderRef | MountSpec)[] | false>;
   enableWriteProtocols?: boolean;
+  enableExport?: boolean /* unset/false: export mounts only when listed in protocols; true: auto-mounted with the default provider */;
   logger?: Logger | false; basePath?: string /* only used in log lines */;
   baseUrl?: string /* absolute → used verbatim (+ mount path) */; trustedHosts?: string[];
   crsTransformer?: CoordinateTransformer | false /* default: registered transformer, if any */;
@@ -201,9 +203,15 @@ A pure function, run once at creation.
    - If `x` is a config and `options` is also given, throw. Two sources of truth is a usage error.
 2. **Check `protocols` keys.** Each key must be a registered `protocol` id, otherwise throw `UnknownProtocolError` listing the installed ids. If a write protocol is listed while `enableWriteProtocols === false`, throw.
 3. **Explicit mounts.** Each `protocols[id]` that isn't `false` becomes one or more mounts. A bare `ProviderRef` becomes `{ provider }`. A missing provider falls back to the top-level `provider`; if there is none, throw.
-4. **Auto mounts.** When a top-level `provider` exists, every registered protocol whose id is **not** a key of `protocols` (keys set to `false` count as present) is mounted on its `defaultPath`, provided either:
-   - `write === false`, or
-   - `enableWriteProtocols === true`.
+4. **Auto mounts.** When a top-level `provider` exists, every registered protocol whose id is **not** a key of `protocols` (keys set to `false` count as present) is mounted on its `defaultPath` only if it passes the gate for its kind:
+
+   | Kind | Auto-mounted when |
+   |---|---|
+   | read (not `optIn`) | always |
+   | write | `enableWriteProtocols === true` |
+   | `optIn`, i.e. `export` | `enableExport === true` |
+
+   `export` is opt-in because it allows bulk downloads. Listing it in `protocols` always mounts it (an explicit choice), and `enableExport: false` never acts as a kill switch.
 5. **Attach read extensions.**
    - Every registered extension whose `target` equals the mount's id or its `base.id` is attached, unless the mount sets it to `false`. An options object is passed to `create`.
    - An unknown key in `MountSpec.extensions` throws.
@@ -290,7 +298,7 @@ The `export` section also shows a worked example URL per format.
 
 ### `export` service
 
-The `export` service is registered by `@spatial-api/server` (id `export`, read), and `createExportService` is exported for manual use.
+The `export` service is registered by `@spatial-api/server` (id `export`, read, **`optIn: true`**), and `createExportService` is exported for manual use. It is mounted only when listed in `protocols` or when `enableExport: true`. With a default provider and `enableExport` unset, an `info` log says "export available but not mounted (enableExport unset)".
 
 | Request | Response |
 |---|---|
@@ -369,6 +377,7 @@ Documentation is part of the deliverable, not a follow-up. Every step that chang
 | `enableWriteProtocols: false` with `protocols: { 'wfs-t': p }` | Throws (kill switch). |
 | A default provider, `wfs-t` installed, `enableWriteProtocols` unset | `wfs` is auto-mounted; `wfs-t` isn't. An `info` log says "write protocol wfs-t installed but not mounted (enableWriteProtocols unset)". |
 | `wfs: false` | Not mounted, even with a default provider. |
+| A default provider with `enableExport` unset | `export` is not mounted, and an `info` log says so. `protocols: { export: p }` or `enableExport: true` mounts it. |
 | Two mounts at `roads/wfs` | `MountConflictError` at startup. |
 | `:tenant/wfs` and `admin/wfs` | Conflict: the param segment overlaps the static one. The user must use distinct static prefixes, e.g. `t/:tenant/wfs`. |
 | A resolver returns an invalid provider | 500 with the generic message, rendered by the protocol's `errorResponse`, plus an `error` log with the violations. Repeat requests with the same instance and mount fail fast from the cached violations. |
@@ -421,7 +430,11 @@ Documentation is part of the deliverable, not a follow-up. Every step that chang
    - same package, higher same-major version wins with a warn
    - a different package claiming the same id → throws
    - errors are classified across two simulated core copies
-2. In core: `encoders/geojson.ts`, the built-in streaming RFC 7946 encoder (amends Spec 1 step 10). Test: streaming output parses as valid GeoJSON, multi-layer is rejected (`multiLayer: false`), abort stops output, plus the RFC 7946 conformance suite run on encoder output.
+2. In core: `encoders/geojson.ts`, with **two** built-in streaming encoders (amends Spec 1 step 10):
+   - `geojson` (RFC 7946 FeatureCollection, `application/geo+json`, `.geojson`)
+   - `geojsonseq` (RFC 8142 GeoJSON Text Sequences, `application/geo+json-seq`, `.geojsons`): one RS-prefixed feature per line. It keeps constant memory, so it is the recommended format for large exports.
+
+   Test: streaming output parses as valid GeoJSON / RFC 8142 records; multi-layer is rejected for `geojson` and concatenated for `geojsonseq`; abort stops output; plus the RFC 7946 conformance suite run on encoder output.
 3. Add `register.ts` as its own esbuild entry to wfs, ogc and crs-transformer. Each also exports its registration object, with static `parameters` and `errorResponse`, and declares `sideEffects`. Switch their GeoJSON output to the core encoder. Test: importing each package registers the expected entries; the WFS/OGC/RFC 7946 suites stay green; `check-dist` confirms the `sideEffects` files exist and registration happens from both the ESM and CJS builds.
 
 **Phase 2 — extension points**
@@ -443,6 +456,7 @@ Documentation is part of the deliverable, not a follow-up. Every step that chang
    - default provider with and without `protocols`
    - `false` entries, and array mounts (missing `path` → throws)
    - the three `enableWriteProtocols` states
+   - `export`: opt-in through `enableExport` or through `protocols`
    - read extensions: off, or with options
    - format opt-outs and duplicate format extensions
    - transformer selection

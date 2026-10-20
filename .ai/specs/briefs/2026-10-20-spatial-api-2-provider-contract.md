@@ -24,7 +24,7 @@ Prerequisite: epic **E**, closing all `[GAP]` tests listed in `docs/standards/RE
 3. **One detailed spec per package**, each written as the first story of its epic:
    - **A, write path:** `wfs-t` (WFS Transaction for 1.0, 1.1 and 2.0); `ogc-features-part4` (Create/Replace/Update/Delete); later, a separate epic for `wfs-locking` (LockFeature, GetFeatureWithLock).
    - **B, richer reads:** `ogc-features-part3` (Filtering / CQL2); `ogc-features-part5` (Schemas / queryables).
-   - **C, encodings:** `format-shapefile`, `format-geopackage`, `format-kml`, `format-flatgeobuf`, `format-csv-wkt`.
+   - **C, encodings:** `format-shapefile`, `format-geopackage`, `format-kml` (KML + KMZ), `format-flatgeobuf`, `format-csv-wkt`, `format-dxf` (export only, for CAD users), `format-gpx`, `format-gml` (standalone, reusing the WFS writer). GeoJSON and GeoJSONSeq (RFC 8142) are built into core (Spec 2).
    - **Later:** optional database-wrapper provider packages.
 4. The backlog is filed from the specs' Phasing with `om-backlog`.
 
@@ -58,7 +58,7 @@ Alternatives explicitly rejected:
 | Driver | Making the suite a more complete standards toolkit. There is no single consumer. |
 | Roadmap | Shared contract first, then A (write path), then B (richer reads), then C (encodings). E is a prerequisite. |
 | 1.x consumers | 2.0 major, clean break, migration guide, no adapter shim. |
-| Format scope (C) | Shapefile, GeoPackage, KML, FlatGeobuf, CSV + WKT. |
+| Format scope (C) | Shapefile, GeoPackage, KML (+ KMZ), FlatGeobuf, CSV + WKT, DXF (export only), GPX, GML standalone. GeoJSONSeq (RFC 8142) is a core encoder. The standalone `export` endpoint is **opt-in** (`enableExport: true` or listed in `protocols`), because it allows bulk downloads. |
 | Packaging | Every protocol, extension and format is an optional npm package; the user decides what to install. Monorepo releases in lockstep: all packages share one major version. |
 | Provider method shape | Typed, protocol-neutral parameter objects, e.g. `getFeatures({ collection, ids, filter, bbox, limit, offset, crs, properties })`. Providers never receive the raw request and never know which protocol called them. `params.context` is an escape hatch for advanced, protocol-specific needs: protocol id and version, user, vendor parameters. |
 | Query parameters | The server never routes or selects providers by query parameters. Where a protocol allows vendor parameters, they reach the provider through `context`, and the provider author interprets them. OGC API `/req/core/query-param-unknown` needs a way for a provider or protocol to declare the extra parameters it accepts, so they appear in the OpenAPI document instead of being answered with 400. |
@@ -85,6 +85,7 @@ Alternatives explicitly rejected:
 
 - Raster services (WMS, WMTS, Tiles/MVT) and the image-cache proxy: listed in the docs catalogue only. No research, no specs.
 - GeoParquet, OGC API Records/CSW, SensorThings, EDR: listed in the docs catalogue only.
+- DWG (proprietary; implementations are the paid ODA SDK or GPL-3.0 LibreDWG), DGN, IFC, CityGML/CityJSON, MapInfo MIF/MID, SpatiaLite, OSM XML/PBF, Esri File Geodatabase, TopoJSON: listed in the docs catalogue only, with the reason.
 - Any compatibility shim or adapter for 1.x providers.
 - Routing or selecting providers by query parameters.
 - Universal database transactions inside the library. Atomicity belongs to the provider.
