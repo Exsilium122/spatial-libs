@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import CrsTransformer from '../../crs/src/index.js';
 import express from 'express';
 import http from 'http';
 import createOgcRouter from '../src/index.js';
@@ -533,6 +534,139 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
         logger: mockLogger3
       });
       expect(mockLogger3.warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('6. CRS parameter validation and injection hardening', () => {
+    class CrsSecurityProvider implements SpatialDataProvider {
+      getFeaturesCalled = false;
+      lastFilterQuery: any = null;
+
+      async getSupportedTypes(): Promise<string[]> {
+        return ['forests'];
+      }
+      async getBoundingBox(): Promise<BoundingBox> {
+        return { minLon: 10, minLat: 50, maxLon: 20, maxLat: 60 };
+      }
+      async getFeatures(
+        _context: any,
+        _featureType: string,
+        _fids?: string[],
+        filterQuery?: any
+      ): Promise<GeoJSONFeature[]> {
+        this.getFeaturesCalled = true;
+        this.lastFilterQuery = filterQuery;
+        return [
+          {
+            id: 'f1',
+            geometry: { type: 'Point', coordinates: [15, 55] },
+            properties: { name: 'Oak' }
+          }
+        ];
+      }
+    }
+
+    it('rejects CRLF and trailing garbage in crs parameter with 400 not 500', async () => {
+      const provider = new CrsSecurityProvider();
+      const router = createOgcRouter({
+        provider,
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      // Trailing header injection attempt
+      const res1 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=http://www.opengis.net/def/crs/EPSG/0/4326%0D%0AX-Evil:%201');
+      expect(res1.status).toBe(400);
+      expect(res1.body.error).toContain('Unsupported crs requested');
+      expect(provider.getFeaturesCalled).toBe(false);
+
+      // Trailing characters on single feature
+      const res2 = await makeRequest(port, '/api/ogc/collections/forests/items/forests_f1?crs=http://www.opengis.net/def/crs/EPSG/0/4326%0D%0AX-Evil:%201');
+      expect(res2.status).toBe(400);
+      expect(res2.body.error).toContain('Unsupported crs requested');
+
+      // Valid CRS emits canonical URI in Content-Crs and does not echo raw input with headers
+      const res3 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=http://www.opengis.net/def/crs/EPSG/0/3006');
+      expect(res3.status).toBe(200);
+      expect(res3.headers['content-crs']).toBe('<http://www.opengis.net/def/crs/EPSG/0/3006>');
+      expect(res3.body.crs).toBe('http://www.opengis.net/def/crs/EPSG/0/3006');
+
+      await stopServer(server);
+    });
+
+    it('rejects duplicated crs parameter with 400', async () => {
+      const provider = new CrsSecurityProvider();
+      const router = createOgcRouter({
+        provider,
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      // Collection items
+      const res1 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=EPSG:3006&crs=EPSG:4326');
+      expect(res1.status).toBe(400);
+      expect(res1.body.error).toContain('Malformed crs parameter: duplicate parameters are not allowed.');
+      expect(provider.getFeaturesCalled).toBe(false);
+
+      // Single feature
+      const res2 = await makeRequest(port, '/api/ogc/collections/forests/items/forests_f1?crs=EPSG:3006&crs=EPSG:4326');
+      expect(res2.status).toBe(400);
+      expect(res2.body.error).toContain('Malformed crs parameter: duplicate parameters are not allowed.');
+
+      await stopServer(server);
+    });
+
+    it('triggers lat/lon axis swap for versioned 4326 URL', async () => {
+      const provider = new CrsSecurityProvider();
+      const router = createOgcRouter({
+        provider,
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      // Collection items: original point is [15, 55] (lon, lat) -> swapped to [55, 15] (lat, lon)
+      const res1 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=http://www.opengis.net/def/crs/EPSG/9.9.1/4326');
+      expect(res1.status).toBe(200);
+      expect(res1.body.features[0].geometry.coordinates).toEqual([55, 15]);
+      expect(res1.headers['content-crs']).toBe('<http://www.opengis.net/def/crs/EPSG/0/4326>');
+      expect(res1.body.crs).toBe('http://www.opengis.net/def/crs/EPSG/0/4326');
+
+      // Single feature: point is swapped to [55, 15]
+      const res2 = await makeRequest(port, '/api/ogc/collections/forests/items/forests_f1?crs=http://www.opengis.net/def/crs/EPSG/9.9.1/4326');
+      expect(res2.status).toBe(200);
+      expect(res2.body.geometry.coordinates).toEqual([55, 15]);
+      expect(res2.headers['content-crs']).toBe('<http://www.opengis.net/def/crs/EPSG/0/4326>');
+
+      await stopServer(server);
+    });
+
+    it('does not treat EPSG/0/43260 as 4326 and rejects it with 400', async () => {
+      const provider = new CrsSecurityProvider();
+      const router = createOgcRouter({
+        provider,
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      const res1 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=http://www.opengis.net/def/crs/EPSG/0/43260');
+      expect(res1.status).toBe(400);
+      expect(res1.body.error).toContain('Unsupported crs requested');
+      expect(provider.getFeaturesCalled).toBe(false);
+
+      const res2 = await makeRequest(port, '/api/ogc/collections/forests/items?crs=EPSG/0/43260');
+      expect(res2.status).toBe(400);
+      expect(res2.body.error).toContain('Unsupported crs requested');
+      expect(provider.getFeaturesCalled).toBe(false);
+
+      const res3 = await makeRequest(port, '/api/ogc/collections/forests/items/forests_f1?crs=http://www.opengis.net/def/crs/EPSG/0/43260');
+      expect(res3.status).toBe(400);
+      expect(res3.body.error).toContain('Unsupported crs requested');
+
+      await stopServer(server);
     });
   });
 });

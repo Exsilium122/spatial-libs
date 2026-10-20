@@ -73,13 +73,11 @@ function isWgs84Crs(srsName: string): boolean {
   const trimmed = srsName.trim();
   if (!trimmed) return false;
   if (
-    /crs84/i.test(trimmed) || 
-    /CRS:84/i.test(trimmed) || 
-    /OGC:1.3:CRS84/i.test(trimmed)
+    /^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/)?ogc\/(?:[\d.]+\/)?|urn:(?:x-)?ogc:def:crs:OGC:(?:[\d.]+)?::?|ogc:)?crs:?84h?$/i.test(trimmed)
   ) {
     return true;
   }
-  const epsgMatch = trimmed.match(/(?:EPSG|epsg\.xml|EPSG\/0\/)(?::|#)*(\d+)/i);
+  const epsgMatch = trimmed.match(/^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*(?:def\/crs\/|gml\/srs\/)|urn:(?:x-)?ogc:def:crs:)?(?:EPSG|epsg\.xml)[:/#]+(?:[\d.]+[:/#]+)?(\d+)$/i);
   if (epsgMatch && epsgMatch[1] === '4326') {
     return true;
   }
@@ -123,8 +121,26 @@ function validateDatetime(dt: string): boolean {
 
 function isLatLonEpsg4326(srs: string, rawCrs?: string): boolean {
   if (!rawCrs) return false;
-  if (/CRS84/i.test(rawCrs)) return false;
-  return /EPSG\/0\/4326/i.test(rawCrs) || /EPSG::4326/i.test(rawCrs) || /EPSG:[\d.]+:4326/i.test(rawCrs);
+  const trimmed = rawCrs.trim();
+  if (/CRS84/i.test(trimmed)) return false;
+  return (
+    /^(?:https?:\/\/(?:[a-zA-Z0-9.-]+\/)*def\/crs\/)?EPSG\/(?:[\d.]+\/)?4326$/i.test(trimmed) ||
+    /^(?:urn:(?:x-)?ogc:def:crs:EPSG:(?:[\d.]+:|:?)4326|EPSG:(?:[\d.]+:|:)4326)$/i.test(trimmed) ||
+    /^https?:\/\/(?:[a-zA-Z0-9.-]+\/)*gml\/srs\/epsg\.xml#4326$/i.test(trimmed)
+  );
+}
+
+function toCanonicalCrsUri(targetSrs: string, rawCrs?: string): string {
+  if (isLatLonEpsg4326(targetSrs, rawCrs)) {
+    return 'http://www.opengis.net/def/crs/EPSG/0/4326';
+  }
+  if (targetSrs === 'EPSG:4326' || !targetSrs) {
+    return 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
+  }
+  if (targetSrs.toUpperCase().startsWith('EPSG:')) {
+    return 'http://www.opengis.net/def/crs/EPSG/0/' + targetSrs.slice(5);
+  }
+  return targetSrs;
 }
 
 function swapGeometryAxes(geom: any): any {
@@ -544,13 +560,18 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       // Parse optional crs and bbox-crs parameters
       let targetSrs = 'EPSG:4326';
       let doReproject = false;
-      if (req.query.crs && options.crsTransformer) {
-        const reqCrs = String(req.query.crs);
-        if (options.crsTransformer.isSupported(reqCrs)) {
-          targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
-          doReproject = true;
-        } else {
-          return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+      if (req.query.crs !== undefined) {
+        if (Array.isArray(req.query.crs)) {
+          return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
+        }
+        if (options.crsTransformer) {
+          const reqCrs = String(req.query.crs);
+          if (options.crsTransformer.isSupported(reqCrs)) {
+            targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
+            doReproject = true;
+          } else {
+            return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+          }
         }
       }
 
@@ -832,12 +853,12 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       };
 
       if (doReproject) {
-        fcResponse.crs = req.query.crs;
+        fcResponse.crs = toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined);
       }
 
       if (options.crsTransformer) {
-        const activeCrsUri = doReproject && req.query.crs
-          ? String(req.query.crs)
+        const activeCrsUri = doReproject
+          ? toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined)
           : 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
         res.setHeader('Content-Crs', `<${activeCrsUri}>`);
       }
@@ -860,15 +881,18 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
       let targetSrs = 'EPSG:4326';
       let doReproject = false;
-      let activeCrsUri = 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
-      if (req.query.crs && options.crsTransformer) {
-        const reqCrs = String(req.query.crs);
-        if (options.crsTransformer.isSupported(reqCrs)) {
-          targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
-          doReproject = true;
-          activeCrsUri = reqCrs;
-        } else {
-          return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+      if (req.query.crs !== undefined) {
+        if (Array.isArray(req.query.crs)) {
+          return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
+        }
+        if (options.crsTransformer) {
+          const reqCrs = String(req.query.crs);
+          if (options.crsTransformer.isSupported(reqCrs)) {
+            targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
+            doReproject = true;
+          } else {
+            return res.status(400).json({ error: `Unsupported crs requested: ${reqCrs}` });
+          }
         }
       }
 
@@ -921,6 +945,9 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       };
 
       if (options.crsTransformer) {
+        const activeCrsUri = doReproject
+          ? toCanonicalCrsUri(targetSrs, req.query.crs ? String(req.query.crs) : undefined)
+          : 'http://www.opengis.net/def/crs/OGC/1.3/CRS84';
         res.setHeader('Content-Crs', `<${activeCrsUri}>`);
       }
       res.type('application/geo+json').json(responseFeature);
