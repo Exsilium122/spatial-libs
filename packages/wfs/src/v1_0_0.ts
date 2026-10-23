@@ -56,7 +56,7 @@ export async function handleWfs100(
                 DCPType: {
                   HTTP: {
                     Get: {
-                      '@onlineResource': `${activeBaseUrl}?request=GetCapabilities`,
+                      '@onlineResource': `${activeBaseUrl}?`,
                     },
                   },
                 },
@@ -68,7 +68,7 @@ export async function handleWfs100(
                 DCPType: {
                   HTTP: {
                     Get: {
-                      '@onlineResource': `${activeBaseUrl}?request=DescribeFeatureType`,
+                      '@onlineResource': `${activeBaseUrl}?`,
                     },
                   },
                 },
@@ -80,7 +80,7 @@ export async function handleWfs100(
                 DCPType: {
                   HTTP: {
                     Get: {
-                      '@onlineResource': `${activeBaseUrl}?request=GetFeature`,
+                      '@onlineResource': `${activeBaseUrl}?`,
                     },
                     Post: {
                       '@onlineResource': activeBaseUrl,

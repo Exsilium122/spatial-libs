@@ -121,6 +121,9 @@ describe('WFS 1.0.0 (OGC 02-058)', () => {
     it('[GAP] every operation reachable over KVP advertises an HTTP Get DCPType (GetFeature only advertises Post)', async () => {
       const caps = (await wfs.get(`${KVP}&request=GetCapabilities`)).doc.WFS_Capabilities;
       expect(caps.Capability.Request.GetFeature.DCPType.HTTP.Get).toBeDefined();
+      expect(caps.Capability.Request.GetCapabilities.DCPType.HTTP.Get['@onlineResource']).toBe(`${wfs.root}?`);
+      expect(caps.Capability.Request.DescribeFeatureType.DCPType.HTTP.Get['@onlineResource']).toBe(`${wfs.root}?`);
+      expect(caps.Capability.Request.GetFeature.DCPType.HTTP.Get['@onlineResource']).toBe(`${wfs.root}?`);
     });
   });
 
