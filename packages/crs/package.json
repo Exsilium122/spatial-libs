@@ -1,6 +1,6 @@
 {
   "name": "@spatial-api/crs-transformer",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Coordinate reference system normalization and projection converter using Proj4",
   "keywords": [
     "crs",
