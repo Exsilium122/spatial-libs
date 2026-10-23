@@ -316,6 +316,10 @@ export async function handleWfs110(
               maxLat = coords[3];
             }
 
+            if (minLon >= maxLon || minLat >= maxLat) {
+              return buildExceptionResponse('InvalidParameterValue', 'bbox', 'Invalid BBOX coordinates: minimum >= maximum', '1.1.0', 400);
+            }
+
             filterQuery['geo.coordinates'] = {
               $geoWithin: {
                 $geometry: {
@@ -389,8 +393,8 @@ export async function handleWfs110(
           doReproject = true;
         } else {
           return buildExceptionResponse(
-            400,
-            'getFeature',
+            'InvalidParameterValue',
+            'srsName',
             `Unsupported SRS requested: ${requestedSrs}`,
             '1.1.0'
           );

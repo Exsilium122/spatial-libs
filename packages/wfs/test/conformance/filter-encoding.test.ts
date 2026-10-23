@@ -197,6 +197,13 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       );
       expect(query['geo.coordinates']).toBeDefined();
     });
+
+    it('handles numeric lowerCorner/upperCorner without throwing TypeError', async () => {
+      const { query } = await kvp(
+        '<ogc:BBOX><ogc:PropertyName>geo</ogc:PropertyName><gml:Envelope><gml:lowerCorner>12345</gml:lowerCorner><gml:upperCorner>67890</gml:upperCorner></gml:Envelope></ogc:BBOX>'
+      );
+      expect(query['geo.coordinates']).toBeUndefined();
+    });
   });
 
   describe('Identifiers (FES 1.x FeatureId, FES 2.0 ResourceId — §7.11)', () => {

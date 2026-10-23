@@ -184,6 +184,8 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
         const res = await crs.get(`${KVP}&request=GetFeature&typename=trees-ns:trees&srsname=EPSG:99999`);
         expect(res.status).toBe(400);
         expect(res.body).toContain('Unsupported SRS requested');
+        expect(res.body).toContain('exceptionCode="InvalidParameterValue"');
+        expect(res.body).toContain('locator="srsName"');
       });
 
       it('the srsName attribute of an XML-encoded wfs:Query is honoured the same way', async () => {
@@ -216,6 +218,18 @@ describe('WFS 1.1.0 (OGC 04-094)', () => {
       it('a non-numeric BBOX is not passed to the data store as NaN', async () => {
         await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=10,foo,12,52`);
         expect(provider.lastCall().filterQuery).toEqual({});
+      });
+
+      it('returns InvalidParameterValue for invalid BBOX coordinate bounds (minX >= maxX or minY >= maxY)', async () => {
+        const res1 = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=12,50,10,52`);
+        expect(res1.status).toBe(400);
+        expect(res1.body).toContain('exceptionCode="InvalidParameterValue"');
+        expect(res1.body).toContain('locator="bbox"');
+
+        const res2 = await wfs.get(`${KVP}&request=GetFeature&typeName=ns:trees&bbox=10,52,12,50`);
+        expect(res2.status).toBe(400);
+        expect(res2.body).toContain('exceptionCode="InvalidParameterValue"');
+        expect(res2.body).toContain('locator="bbox"');
       });
     });
   });

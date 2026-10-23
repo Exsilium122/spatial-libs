@@ -88,9 +88,26 @@ function isWgs84Crs(srsName: string): boolean {
 }
 
 function isValidRfc3339DateTime(str: string): boolean {
-  if (!/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i.test(str)) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/i.exec(str);
+  if (!match) {
     return false;
   }
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const min = parseInt(match[5], 10);
+  const sec = parseInt(match[6], 10);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || min > 59 || sec > 60) {
+    return false;
+  }
+
+  const d = new Date(Date.UTC(year, month - 1, day));
+  if (d.getUTCFullYear() !== year || d.getUTCMonth() + 1 !== month || d.getUTCDate() !== day) {
+    return false;
+  }
+
   const t = Date.parse(str);
   return !isNaN(t);
 }
@@ -347,6 +364,15 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
             responses: {
               200: {
                 description: 'Features in a collection'
+              }
+            }
+          }
+        },
+        '/collections/{collectionId}/items/{featureId}': {
+          get: {
+            responses: {
+              200: {
+                description: 'A single feature'
               }
             }
           }

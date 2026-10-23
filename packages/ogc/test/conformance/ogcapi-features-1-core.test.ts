@@ -265,7 +265,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
         }
       );
 
-      it.each(['yesterday', '2018-13-45T00:00:00Z', '2018-03-18T12:31:12Z/2018-02-12T00:00:00Z'])(
+      it.each(['yesterday', '2018-13-45T00:00:00Z', '2018-03-18T12:31:12Z/2018-02-12T00:00:00Z', '2021-02-29T12:00:00Z', '2021-04-31T00:00:00Z'])(
         '/req/core/fc-time-response D/E, /req/core/query-param-invalid: datetime=%s is not RFC 3339 / a valid interval and yields 400',
         async (datetime) => {
           expect((await ogc.get(`/collections/lakes/items?datetime=${encodeURIComponent(datetime)}`)).status).toBe(400);
@@ -389,7 +389,7 @@ describe('OGC API - Features - Part 1: Core (OGC 17-069r4)', () => {
 
     it('/req/oas30/oas-impl, /req/oas30/completeness: the definition documents every operation the server implements', async () => {
       const api: any = await (await ogc.get('/api')).json();
-      for (const path of ['/', '/conformance', '/collections', '/collections/{collectionId}', '/collections/{collectionId}/items']) {
+      for (const path of ['/', '/conformance', '/collections', '/collections/{collectionId}', '/collections/{collectionId}/items', '/collections/{collectionId}/items/{featureId}']) {
         expect(api.paths[path]?.get, path).toBeDefined();
       }
     });

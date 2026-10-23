@@ -294,8 +294,8 @@ export function parseFilterObj(filterNode: any): any {
     }
     const envNode = unwrap(bboxNode?.Envelope);
     if (envNode && envNode.lowerCorner && envNode.upperCorner) {
-      const lower = unwrap(envNode.lowerCorner).trim().split(/\s+/).map(Number);
-      const upper = unwrap(envNode.upperCorner).trim().split(/\s+/).map(Number);
+      const lower = String(unwrap(envNode.lowerCorner) ?? '').trim().split(/\s+/).map(Number);
+      const upper = String(unwrap(envNode.upperCorner) ?? '').trim().split(/\s+/).map(Number);
       if (lower.length >= 2 && upper.length >= 2 && !isNaN(lower[0]) && !isNaN(lower[1]) && !isNaN(upper[0]) && !isNaN(upper[1])) {
         query[dbPropName] = {
           $geoWithin: {
