@@ -15,7 +15,7 @@ Target: Fix all discovered security audit findings across CRS, OGC, WFS, CI/CD, 
 ## Progress
 
 ### Phase 1 — Parallel Implementation (Disjoint Scopes)
-- [ ] Unit 1: CRS Transformer prototype check hardening (`packages/crs/**`)
+- [x] Unit 1: CRS Transformer prototype check hardening (`packages/crs/**`) — Merged `cez/c09546fc`
 - [ ] Unit 2: OGC API Features fail-closed host & error handling (`packages/ogc/**`)
 - [ ] Unit 3: WFS protocol engine authorization, injection, and body limits (`packages/wfs/**`)
 - [ ] Unit 4: Workflows, Tester CLI & Documentation hardening (`.github/workflows/**`, `packages/tester/**`, `README.md`)
