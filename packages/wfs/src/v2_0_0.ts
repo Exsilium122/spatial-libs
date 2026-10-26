@@ -3,6 +3,8 @@ import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys, FilterValidationError } from './filterParser.js';
 
+const XML_NCNAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_.-]*$/;
+
 let lastTimestampMs = 0;
 let cachedTimestampStr = '';
 
@@ -386,12 +388,18 @@ export async function handleWfs200(
     }
 
     if (requestType === 'describefeaturetype') {
+      const supported = await provider.getSupportedTypes(req.user);
       let typeName = query.TYPENAME || query.TYPENAMES || '';
       let cleanTypes: string[] = [];
       if (typeName) {
-        cleanTypes = String(typeName).split(',').map((t: string) => t.trim().replace(new RegExp(`^(${nsPrefix}|wfs):`), ''));
+        cleanTypes = String(typeName).split(',').map((t: string) => t.trim().replace(/^[^:]+:/, ''));
+        for (const ct of cleanTypes) {
+          if (!supported.includes(ct)) {
+            return buildExceptionResponse('InvalidParameterValue', query.TYPENAMES ? 'typeNames' : 'typeName', `Feature type '${ct}' is not advertised by this service.`, version, 400);
+          }
+        }
       } else {
-        cleanTypes = await provider.getSupportedTypes(req.user);
+        cleanTypes = supported;
       }
 
       if (cleanTypes.length === 0) {
@@ -439,6 +447,7 @@ export async function handleWfs200(
         ];
 
         for (const [propName, propType] of Object.entries(propertiesSchema)) {
+          if (!XML_NCNAME_REGEX.test(propName)) continue;
           let xsdType = 'string';
           if (propType === 'integer') xsdType = 'integer';
           else if (propType === 'double') xsdType = 'double';
@@ -499,7 +508,14 @@ export async function handleWfs200(
       const storedQueryId = query.STOREDQUERY_ID || '';
       if (storedQueryId) {
         if (storedQueryId.includes('GetFeatureById')) {
-          const id = query.ID || query.FEATUREID || '';
+          const rawId = query.ID !== undefined ? query.ID : query.FEATUREID;
+          if (rawId === undefined || rawId === null || rawId === '') {
+            return buildExceptionResponse('MissingParameterValue', 'id', 'Missing mandatory parameter: id', version, 400);
+          }
+          if (typeof rawId !== 'string' && typeof rawId !== 'number') {
+            return buildExceptionResponse('InvalidParameterValue', 'id', 'Invalid parameter: id must be a primitive string', version, 400);
+          }
+          const id = String(rawId);
           if (!id) {
             return buildExceptionResponse('MissingParameterValue', 'id', 'Missing mandatory parameter: id', version, 400);
           }
@@ -527,6 +543,7 @@ export async function handleWfs200(
             featureProps[`${nsPrefix}:geo`] = gmlGeo;
           }
           for (const [k, v] of Object.entries(foundFeature.properties || {})) {
+            if (!XML_NCNAME_REGEX.test(k)) continue;
             featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
           }
 
@@ -664,10 +681,10 @@ export async function handleWfs200(
         return buildExceptionResponse('MissingParameterValue', 'typeNames', 'error: missing feature type', version, 400);
       }
 
-      const cleanType = featureType.replace(new RegExp(`^(${nsPrefix}|wfs):`), '');
+      const cleanType = featureType.replace(/^[^:]+:/, '');
       const supported = await provider.getSupportedTypes(req.user);
       if (!supported.includes(cleanType)) {
-        return buildExceptionResponse('InvalidParameterValue', 'typeNames', `Feature type '${featureType}' is not advertised by this service.`, version, 400);
+        return buildExceptionResponse('InvalidParameterValue', query.TYPENAMES ? 'typeNames' : 'typeName', `Feature type '${featureType}' is not advertised by this service.`, version, 400);
       }
 
       let targetSrs = 'EPSG:4326';
@@ -713,6 +730,8 @@ export async function handleWfs200(
         }
       }
       let count: number | undefined = undefined;
+      const postGetF = req.body ? (req.body['wfs:getfeature'] || req.body.getfeature) : undefined;
+      const postCount = postGetF?.$?.count || postGetF?.$?.maxFeatures;
       if (query.COUNT !== undefined) {
         const parsed = parseInt(String(query.COUNT), 10);
         if (!isNaN(parsed) && parsed >= 0) {
@@ -723,6 +742,19 @@ export async function handleWfs200(
         if (!isNaN(parsed) && parsed >= 0) {
           count = parsed;
         }
+      } else if (postCount !== undefined) {
+        const parsed = parseInt(String(postCount), 10);
+        if (!isNaN(parsed) && parsed >= 0) {
+          count = parsed;
+        }
+      }
+
+      const maxLimit = options.maxCount ?? 1000;
+      const defaultLimit = options.defaultCount ?? maxLimit;
+      if (count !== undefined) {
+        count = Math.min(count, maxLimit);
+      } else {
+        count = Math.min(defaultLimit, maxLimit);
       }
 
       const totalMatched = features.length;
@@ -790,6 +822,7 @@ export async function handleWfs200(
         }
 
         for (const [k, v] of Object.entries(feature.properties || {})) {
+          if (!XML_NCNAME_REGEX.test(k)) continue;
           featureProps[`${nsPrefix}:${k}`] = v !== null && v !== undefined ? String(v) : '';
         }
 
