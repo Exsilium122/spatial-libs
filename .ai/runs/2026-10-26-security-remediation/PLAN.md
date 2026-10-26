@@ -22,5 +22,5 @@ Target: Fix all discovered security audit findings across CRS, OGC, WFS, CI/CD, 
 
 ### Phase 2 — Integration & Verification
 - [x] Sequentially merge all 4 child branches into `cez/c0301c79`
-- [ ] Run full validation gate from root (`npm run build` and `npm test`)
-- [ ] Final integration summary and report
+- [x] Run full validation gate from root (`npm run build` and `npm test` — all 424 tests passing)
+- [x] Final integration summary and report
