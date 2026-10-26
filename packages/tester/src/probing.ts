@@ -18,12 +18,22 @@ export interface ProbeResult {
 /**
  * Normalizes prefix from XML parsed objects
  */
-function stripPrefix(obj: any): any {
+export function stripPrefix(obj: any): any {
   if (typeof obj !== 'object' || obj === null) return obj;
   if (Array.isArray(obj)) return obj.map(stripPrefix);
-  const newObj: any = {};
+  const newObj: any = Object.create(null);
   for (const [k, v] of Object.entries(obj)) {
     const cleanKey = k.replace(/^.*:/, '');
+    if (
+      k === '__proto__' ||
+      k === 'constructor' ||
+      k === 'prototype' ||
+      cleanKey === '__proto__' ||
+      cleanKey === 'constructor' ||
+      cleanKey === 'prototype'
+    ) {
+      continue;
+    }
     newObj[cleanKey] = stripPrefix(v);
   }
   return newObj;

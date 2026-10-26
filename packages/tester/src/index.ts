@@ -3,16 +3,11 @@ import inquirer from 'inquirer';
 import { probeTarget, DiscoveredCollection, ProbeResult } from './probing.js';
 import { runSmokeTests } from './smoke.js';
 import { runStressTests, renderStressReport } from './stress.js';
-import { parseArgs, parsePositionalArgs, normalizeUrl, parseCollectionsSpec } from './cli-args.js';
+import { parseArgs, parsePositionalArgs, normalizeUrl, parseCollectionsSpec, resolveCliParams } from './cli-args.js';
 
 async function main() {
   const args = process.argv.slice(2);
-  const positional = parsePositionalArgs(args);
-  const options = parseArgs(args);
-
-  const rawUrl = positional[0] || options.url;
-  const authUser = options.user || process.env.AUTH_USER || '';
-  const authPass = options.pass || process.env.AUTH_PASS || '';
+  const { positional, options, rawUrl, authUser, authPass } = resolveCliParams(args);
 
   if (!rawUrl) {
     console.log('\n\x1b[1m\x1b[36m================================================================================');

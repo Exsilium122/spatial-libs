@@ -261,7 +261,7 @@ export const mongoTreesProvider: SpatialDataProvider = {
     }
 
     // Merge standard spatial filters (e.g. $geoWithin mapped by the parser)
-    const combinedQuery = filterQuery ? { ...query, ...filterQuery } : query;
+    const combinedQuery = filterQuery ? { ...filterQuery, ...query } : query;
 
     const docs = await db.collection('features').find(combinedQuery).toArray();
     return docs.map(d => ({
