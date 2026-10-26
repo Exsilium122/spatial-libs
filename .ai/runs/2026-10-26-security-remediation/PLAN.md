@@ -18,7 +18,7 @@ Target: Fix all discovered security audit findings across CRS, OGC, WFS, CI/CD, 
 - [x] Unit 1: CRS Transformer prototype check hardening (`packages/crs/**`) — Merged `cez/c09546fc`
 - [x] Unit 2: OGC API Features fail-closed host & error handling (`packages/ogc/**`) — Merged `cez/a1fc9691`
 - [ ] Unit 3: WFS protocol engine authorization, injection, and body limits (`packages/wfs/**`)
-- [ ] Unit 4: Workflows, Tester CLI & Documentation hardening (`.github/workflows/**`, `packages/tester/**`, `README.md`)
+- [x] Unit 4: Workflows, Tester CLI & Documentation hardening (`.github/workflows/**`, `packages/tester/**`, `README.md`) — Merged `cez/33648654`
 
 ### Phase 2 — Integration & Verification
 - [ ] Sequentially merge all 4 child branches into `cez/c0301c79`
