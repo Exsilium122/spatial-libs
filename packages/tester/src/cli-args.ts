@@ -100,6 +100,12 @@ export function resolveCliParams(
   const authUser = options.user || env.AUTH_USER || '';
   const authPass = options.pass || env.AUTH_PASS || '';
 
+  if (options.pass) {
+    console.warn(
+      'Security Warning: Supplying password credentials via command-line arguments is insecure. Use the AUTH_PASS environment variable instead.'
+    );
+  }
+
   const auth = (authUser || authPass) ? { user: authUser, pass: authPass } : undefined;
   const targetUrl = rawUrl ? normalizeUrl(rawUrl) : undefined;
 
