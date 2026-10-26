@@ -491,6 +491,34 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
       await stopServer(server);
     });
 
+    it('when baseUrl is relative and trustedHosts is not configured, does not reflect arbitrary client Host headers and fails closed to relative paths', async () => {
+      const router = createOgcRouter({
+        provider: new DummyProvider(),
+        baseUrl: '/ogc'
+      });
+      const { server, port } = await startServer(router, '/ogc');
+
+      const res = await makeRequest(port, '/ogc/collections', {
+        headers: { Host: 'attacker.com' }
+      });
+      expect(res.status).toBe(200);
+      for (const link of res.body.links) {
+        expect(link.href).not.toContain('attacker.com');
+        expect(link.href.startsWith('/ogc')).toBe(true);
+      }
+
+      const res2 = await makeRequest(port, '/ogc', {
+        headers: { Host: 'attacker.com' }
+      });
+      expect(res2.status).toBe(200);
+      for (const link of res2.body.links) {
+        expect(link.href).not.toContain('attacker.com');
+        expect(link.href.startsWith('/ogc')).toBe(true);
+      }
+
+      await stopServer(server);
+    });
+
     it('emits a warning at router creation when relative baseUrl is used without trustedHosts', () => {
       const mockLogger: Logger = {
         info: vi.fn(),
@@ -665,6 +693,212 @@ describe('OGC API Security & Hardening (@spatial-api/ogc)', () => {
       const res3 = await makeRequest(port, '/api/ogc/collections/forests/items/forests_f1?crs=http://www.opengis.net/def/crs/EPSG/0/43260');
       expect(res3.status).toBe(400);
       expect(res3.body.error).toContain('Unsupported crs requested');
+
+      await stopServer(server);
+    });
+  });
+
+  describe('5. Router error handling (HTTP 500 standardized JSON response)', () => {
+    class FailingProvider implements SpatialDataProvider {
+      async getSupportedTypes(): Promise<string[]> {
+        return ['sites'];
+      }
+      async getBoundingBox(): Promise<BoundingBox> {
+        throw new Error('Database connection failed in getBoundingBox');
+      }
+      async getFeatures(_ctx: any, _col: string, fids?: string[]): Promise<GeoJSONFeature[]> {
+        if (fids && fids.length > 0) {
+          throw new Error('Database query timeout in single feature getFeatures');
+        }
+        throw new Error('Database query timeout in getFeatures');
+      }
+    }
+
+    it('returns standardized status 500 JSON and logs error on /collections failure', async () => {
+      class CollectionsFailingProvider extends FailingProvider {
+        override async getSupportedTypes(): Promise<string[]> {
+          throw new Error('Failed to fetch supported types');
+        }
+      }
+      const mockLogger: Logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const router = createOgcRouter({
+        provider: new CollectionsFailingProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        logger: mockLogger
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections');
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: 'Internal server error' });
+      expect(mockLogger.error).toHaveBeenCalled();
+
+      await stopServer(server);
+    });
+
+    it('returns standardized status 500 JSON and logs error on /collections/:collectionId failure', async () => {
+      const mockLogger: Logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const router = createOgcRouter({
+        provider: new FailingProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        logger: mockLogger
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections/sites');
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: 'Internal server error' });
+      expect(mockLogger.error).toHaveBeenCalled();
+
+      await stopServer(server);
+    });
+
+    it('returns standardized status 500 JSON and logs error on /collections/:collectionId/items failure', async () => {
+      const mockLogger: Logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const router = createOgcRouter({
+        provider: new FailingProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        logger: mockLogger
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections/sites/items');
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: 'Internal server error' });
+      expect(mockLogger.error).toHaveBeenCalled();
+
+      await stopServer(server);
+    });
+
+    it('returns standardized status 500 JSON and logs error on /collections/:collectionId/items/:featureId failure', async () => {
+      const mockLogger: Logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const router = createOgcRouter({
+        provider: new FailingProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        logger: mockLogger
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections/sites/items/sites_1');
+      expect(res.status).toBe(500);
+      expect(res.body).toEqual({ error: 'Internal server error' });
+      expect(mockLogger.error).toHaveBeenCalled();
+
+      await stopServer(server);
+    });
+  });
+
+  describe('7. Query parameter primitive string assertions and object rejection', () => {
+    class ParamTestProvider implements SpatialDataProvider {
+      async getSupportedTypes(): Promise<string[]> {
+        return ['places'];
+      }
+      async getBoundingBox(): Promise<BoundingBox> {
+        return { minLon: 0, minLat: 0, maxLon: 10, maxLat: 10 };
+      }
+      async getFeatures(): Promise<GeoJSONFeature[]> {
+        return [
+          {
+            id: '1',
+            geometry: { type: 'Point', coordinates: [1, 1] },
+            properties: { name: 'Test' }
+          }
+        ];
+      }
+    }
+
+    it('rejects nested query objects in limit with HTTP 400', async () => {
+      const router = createOgcRouter({
+        provider: new ParamTestProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc'
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections/places/items?limit[gt]=10');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'Invalid "limit" parameter: expected a single string value.' });
+
+      await stopServer(server);
+    });
+
+    it('rejects nested query objects and invalid values in offset and startindex with HTTP 400', async () => {
+      const router = createOgcRouter({
+        provider: new ParamTestProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc'
+      });
+      const { server, port } = await startServer(router);
+
+      // Object in offset
+      const res1 = await makeRequest(port, '/api/ogc/collections/places/items?offset[ne]=1');
+      expect(res1.status).toBe(400);
+      expect(res1.body).toEqual({ error: 'Invalid "offset" parameter: expected a single string value.' });
+
+      // Negative offset
+      const res2 = await makeRequest(port, '/api/ogc/collections/places/items?offset=-5');
+      expect(res2.status).toBe(400);
+      expect(res2.body.error).toContain('Invalid offset parameter');
+
+      // Object in startindex
+      const res3 = await makeRequest(port, '/api/ogc/collections/places/items?startindex[ne]=1');
+      expect(res3.status).toBe(400);
+      expect(res3.body).toEqual({ error: 'Invalid "startindex" parameter: expected a single string value.' });
+
+      // Negative startindex
+      const res4 = await makeRequest(port, '/api/ogc/collections/places/items?startindex=-1');
+      expect(res4.status).toBe(400);
+      expect(res4.body.error).toContain('Invalid startindex parameter');
+
+      await stopServer(server);
+    });
+
+    it('rejects nested query objects in crs on items and items/:featureId with HTTP 400', async () => {
+      const router = createOgcRouter({
+        provider: new ParamTestProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      const res1 = await makeRequest(port, '/api/ogc/collections/places/items?crs[evil]=test');
+      expect(res1.status).toBe(400);
+      expect(res1.body).toEqual({ error: 'Invalid "crs" parameter: expected a single string value.' });
+
+      const res2 = await makeRequest(port, '/api/ogc/collections/places/items/places_1?crs[evil]=test');
+      expect(res2.status).toBe(400);
+      expect(res2.body).toEqual({ error: 'Invalid "crs" parameter: expected a single string value.' });
+
+      await stopServer(server);
+    });
+
+    it('rejects nested query objects in bbox and bbox-crs with HTTP 400', async () => {
+      const router = createOgcRouter({
+        provider: new ParamTestProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc',
+        crsTransformer: CrsTransformer
+      });
+      const { server, port } = await startServer(router);
+
+      const res1 = await makeRequest(port, '/api/ogc/collections/places/items?bbox[evil]=0,0,1,1');
+      expect(res1.status).toBe(400);
+      expect(res1.body).toEqual({ error: 'Invalid "bbox" parameter: expected a single string value.' });
+
+      const res2 = await makeRequest(port, '/api/ogc/collections/places/items?bbox=0,0,1,1&bbox-crs[evil]=4326');
+      expect(res2.status).toBe(400);
+      expect(res2.body).toEqual({ error: 'Invalid "bbox-crs" parameter: expected a single string value.' });
+
+      await stopServer(server);
+    });
+
+    it('rejects nested query objects in datetime with HTTP 400', async () => {
+      const router = createOgcRouter({
+        provider: new ParamTestProvider(),
+        baseUrl: 'http://127.0.0.1/api/ogc'
+      });
+      const { server, port } = await startServer(router);
+
+      const res = await makeRequest(port, '/api/ogc/collections/places/items?datetime[gt]=2020-01-01');
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'Invalid "datetime" parameter: expected a single string value.' });
 
       await stopServer(server);
     });
