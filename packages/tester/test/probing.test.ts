@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
-import { probeTarget } from '../src/probing.js';
+import { probeTarget, stripPrefix } from '../src/probing.js';
 
 vi.mock('axios');
 
@@ -287,6 +287,44 @@ describe('probeTarget', () => {
       expect(col.projections).toContain('EPSG:4326');
       expect(col.projections).toContain('EPSG:3857');
       expect(col.bbox).toEqual([10.0, 20.0, 30.0, 40.0]);
+    });
+  });
+
+  describe('stripPrefix', () => {
+    it('builds null-prototype objects', () => {
+      const result = stripPrefix({ 'wfs:name': 'forests' });
+      expect(Object.getPrototypeOf(result)).toBeNull();
+      expect(result.name).toBe('forests');
+    });
+
+    it('skips __proto__, constructor, and prototype keys', () => {
+      const malicious = JSON.parse(
+        '{\"__proto__\":{\"polluted\":\"yes\"},\"constructor\":{\"polluted\":\"yes\"},\"prototype\":{\"polluted\":\"yes\"},\"ows:__proto__\":{\"polluted\":\"yes\"},\"wfs:FeatureType\":{\"name\":\"forests\"}}'
+      );
+      const result = stripPrefix(malicious);
+      expect(Object.prototype.hasOwnProperty.call(result, '__proto__')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(result, 'constructor')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(result, 'prototype')).toBe(false);
+      expect((result as any).__proto__).toBeUndefined();
+      expect((result as any).constructor).toBeUndefined();
+      expect((result as any).prototype).toBeUndefined();
+      expect(({} as any).polluted).toBeUndefined();
+      expect(result.FeatureType).toBeDefined();
+      expect(Object.getPrototypeOf(result.FeatureType)).toBeNull();
+      expect(result.FeatureType.name).toBe('forests');
+    });
+
+    it('handles nested structures and arrays with null prototypes', () => {
+      const input = {
+        'wfs:list': [
+          { 'ows:item': '1' },
+          { 'ows:item': '2' }
+        ]
+      };
+      const result = stripPrefix(input);
+      expect(Array.isArray(result.list)).toBe(true);
+      expect(Object.getPrototypeOf(result.list[0])).toBeNull();
+      expect(result.list[0].item).toBe('1');
     });
   });
 });

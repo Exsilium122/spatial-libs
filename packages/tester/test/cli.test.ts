@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   parseArgs,
   parsePositionalArgs,
@@ -158,6 +158,28 @@ describe('CLI argument parsing and helpers', () => {
       expect(params.targetUrl).toBeUndefined();
       expect(params.auth).toBeUndefined();
       expect(params.options.mode).toBe('stress');
+    });
+
+    it('logs a security warning when password credentials are supplied via command-line arguments', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        resolveCliParams(['http://example.com', '--pass=secret'], {});
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringMatching(/security warning.*AUTH_PASS/i)
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('does not log a security warning when password is supplied via AUTH_PASS environment variable', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        resolveCliParams(['http://example.com'], { AUTH_PASS: 'secret' });
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

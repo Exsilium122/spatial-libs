@@ -119,4 +119,27 @@ describe('CRS Transformer Tests', () => {
       expect(CrsTransformer.isSupported(versionedUrn)).toBe(true);
     });
   });
+
+  describe('Security: Prototype property name handling', () => {
+    it('evaluates prototype property names to false in isSupported() and getSupportedCodes()', () => {
+      const protoProps = ['constructor', 'toString', 'valueOf', '__proto__'];
+      const supportedCodes = CrsTransformer.getSupportedCodes();
+
+      expect(CrsTransformer.isSupported('constructor')).toBe(false);
+      expect(CrsTransformer.isSupported('toString')).toBe(false);
+      expect(CrsTransformer.isSupported('valueOf')).toBe(false);
+      expect(CrsTransformer.isSupported('__proto__')).toBe(false);
+
+      expect(supportedCodes.includes('constructor')).toBe(false);
+      expect(supportedCodes.includes('toString')).toBe(false);
+      expect(supportedCodes.includes('valueOf')).toBe(false);
+      expect(supportedCodes.includes('__proto__')).toBe(false);
+
+      for (const prop of protoProps) {
+        expect(CrsTransformer.isSupported(prop)).toBe(false);
+        expect(CrsTransformer.getSupportedCodes().includes(prop)).toBe(false);
+        expect(CrsTransformer.getSupportedCodes()).not.toContain(prop);
+      }
+    });
+  });
 });

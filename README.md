@@ -63,12 +63,14 @@ export interface SpatialDataProvider {
   /** Returns coordinate boundaries envelope for a feature type. */
   getBoundingBox(context: any, featureType: string): Promise<BoundingBox>;
 
-  /** Fetches the spatial features. */
+  /** Fetches the spatial features. WFS only passes filters on advertised properties (see getPropertiesSchema)
+   *  and, as `queryOptions.limit`, the most features it will use — stop reading there when you can. */
   getFeatures(
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    queryOptions?: { limit?: number }
   ): Promise<GeoJSONFeature[]>;
 
   /** Optional: Determines whether geometry is LineString or Point. Defaults to Point. */
@@ -261,7 +263,7 @@ export const mongoTreesProvider: SpatialDataProvider = {
     }
 
     // Merge standard spatial filters (e.g. $geoWithin mapped by the parser)
-    const combinedQuery = filterQuery ? { ...query, ...filterQuery } : query;
+    const combinedQuery = filterQuery ? { ...filterQuery, ...query } : query;
 
     const docs = await db.collection('features').find(combinedQuery).toArray();
     return docs.map(d => ({

@@ -240,9 +240,15 @@ describe('OGC Filter Encoding (FES 1.0 / 1.1 / 2.0) through WFS GetFeature', () 
       expect(provider.calls).toHaveLength(0);
     });
 
-    it('nested property paths (a.b) are accepted', async () => {
-      const { query } = await kvp(eq('props.height_m', '3'));
-      expect(Object.keys(query)).toEqual(['props.height_m']);
+    it('nested property paths (a.b) under an advertised property are accepted', async () => {
+      const { query } = await kvp(eq('height.m', '3'));
+      expect(Object.keys(query)).toEqual(['height.m']);
+    });
+
+    it('nested property paths under an unadvertised property are rejected', async () => {
+      const { res } = await kvp(eq('props.height_m', '3'));
+      expect(res.status).toBe(400);
+      expect(res.body).toContain('InvalidParameterValue');
     });
   });
 });

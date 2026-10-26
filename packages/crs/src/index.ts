@@ -202,7 +202,7 @@ export class CrsTransformerClass implements CoordinateTransformer {
    */
   public isSupported(srsName: string): boolean {
     const normalized = this.normalizeSrs(srsName);
-    return normalized in BUILTIN_PROJECTIONS || this.customCodes.has(normalized);
+    return Object.prototype.hasOwnProperty.call(BUILTIN_PROJECTIONS, normalized) || this.customCodes.has(normalized);
   }
 
   /**

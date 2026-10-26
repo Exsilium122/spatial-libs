@@ -23,6 +23,12 @@ export interface GeoJSONFeature {
   properties: Record<string, any>;
 }
 
+export interface FeatureQueryOptions {
+  /** Most features the router will use from this call (MAXFEATURES/COUNT after `maxCount` clamping,
+   *  plus STARTINDEX). Providers SHOULD stop reading after this many; the router still truncates. */
+  limit?: number;
+}
+
 export interface SpatialDataProvider {
   getSupportedTypes(context: any): Promise<string[]>;
   getBoundingBox(context: any, featureType: string): Promise<BoundingBox>;
@@ -30,7 +36,8 @@ export interface SpatialDataProvider {
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    queryOptions?: FeatureQueryOptions
   ): Promise<GeoJSONFeature[]>;
   getGeometryType?(context: any, featureType: string): Promise<'LineString' | 'Point'>;
   getPropertiesSchema?(
@@ -57,6 +64,12 @@ export interface WfsOptions {
   crsTransformer?: CoordinateTransformer; // Dynamic injection
   appUrl?: string; // Kept as optional fallback/backward compatibility if needed, but not enforced
   enabledVersions?: ('1.0.0' | '1.1.0' | '2.0.0' | '2.0.2')[];
+  /** Maximum allowed size in bytes for POST request bodies (defaults to 1MB). */
+  maxBodyBytes?: number;
+  /** Default count/maxFeatures cap when omitted in GetFeature query (defaults to 1000). */
+  defaultCount?: number;
+  /** Upper bound limit for count/maxFeatures in GetFeature query (defaults to 1000). */
+  maxCount?: number;
   xmlOptions?: {
     schemaLocations?: Record<string, string>;
     namespaces?: Record<string, string>;
