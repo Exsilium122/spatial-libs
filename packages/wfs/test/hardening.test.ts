@@ -47,9 +47,10 @@ class HardeningMockProvider implements SpatialDataProvider {
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    queryOptions?: { limit?: number }
   ): Promise<GeoJSONFeature[]> {
-    this.calls.push({ method: 'getFeatures', args: [context, featureType, fids, filterQuery] });
+    this.calls.push({ method: 'getFeatures', args: [context, featureType, fids, filterQuery, queryOptions] });
     return this.featuresToReturn;
   }
 
@@ -422,6 +423,153 @@ describe('WFS Security Hardening & Limits', () => {
         customOptions
       );
       expect(resExplicit.body).toContain('numberReturned="10"');
+    });
+
+    it('passes the effective cap to the provider as a limit hint in every version', async () => {
+      const featureFetches = () =>
+        provider.calls.filter((c) => c.method === 'getFeatures').map((c) => c.args[4]);
+
+      await handleWfs100({ method: 'GET', query: { REQUEST: 'GetFeature', TYPENAME: 'ns:trees', MAXFEATURES: '5' } }, options);
+      expect(featureFetches()).toEqual([{ limit: 5 }]);
+
+      provider.calls = [];
+      await handleWfs110({ method: 'GET', query: { REQUEST: 'GetFeature', TYPENAME: 'ns:trees' } }, options);
+      expect(featureFetches()).toEqual([{ limit: 1000 }]);
+
+      provider.calls = [];
+      await handleWfs200(
+        { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAMES: 'ns:trees', COUNT: '10', STARTINDEX: '20' } },
+        options
+      );
+      // One past the page, so a full page can be reported as numberMatched="unknown".
+      expect(featureFetches()).toEqual([{ limit: 31 }]);
+    });
+
+    it('does not limit the fetch for hits or a 1.1.0 SORTBY, which need every match', async () => {
+      const featureFetches = () =>
+        provider.calls.filter((c) => c.method === 'getFeatures').map((c) => c.args[4]);
+
+      await handleWfs110({ method: 'GET', query: { REQUEST: 'GetFeature', TYPENAME: 'ns:trees', SORTBY: 'name' } }, options);
+      expect(featureFetches()).toEqual([undefined]);
+
+      provider.calls = [];
+      const hits = await handleWfs200(
+        { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAMES: 'ns:trees', RESULTTYPE: 'hits' } },
+        options
+      );
+      expect(featureFetches()).toEqual([undefined]);
+      expect(hits.body).toContain('numberMatched="1500"');
+    });
+
+    it('reports numberMatched="unknown" when a limit-honouring provider fills the page', async () => {
+      const original = provider.getFeatures.bind(provider);
+      provider.getFeatures = async (context, featureType, fids, filterQuery, queryOptions?: { limit?: number }) => {
+        const all = await original(context, featureType, fids, filterQuery);
+        return queryOptions?.limit !== undefined ? all.slice(0, queryOptions.limit) : all;
+      };
+      try {
+        const res = await handleWfs200(
+          { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAMES: 'ns:trees', COUNT: '10' } },
+          options
+        );
+        expect(res.body).toContain('numberMatched="unknown"');
+        expect(res.body).toContain('numberReturned="10"');
+      } finally {
+        provider.getFeatures = original;
+      }
+    });
+  });
+
+  describe('7) Filter property names are bounded to the advertised schema', () => {
+    const filterOn = (prop: string) =>
+      `<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:PropertyIsEqualTo><ogc:PropertyName>${prop}</ogc:PropertyName><ogc:Literal>x</ogc:Literal></ogc:PropertyIsEqualTo></ogc:Filter>`;
+    const featureFetchesWithFilter = () =>
+      provider.calls.filter((c) => c.method === 'getFeatures' && c.args[3] && Object.keys(c.args[3]).length > 0);
+
+    it('rejects a KVP filter on an unadvertised property in every version without querying the provider', async () => {
+      const cases: [string, (req: any, opts: WfsOptions) => Promise<any>, string][] = [
+        ['1.0.0', handleWfs100, 'TYPENAME'],
+        ['1.1.0', handleWfs110, 'TYPENAME'],
+        ['2.0.0', handleWfs200, 'TYPENAMES'],
+      ];
+      for (const [, handler, typeKey] of cases) {
+        provider.calls = [];
+        const res = await handler(
+          { method: 'GET', query: { REQUEST: 'GetFeature', [typeKey]: 'ns:trees', FILTER: filterOn('tenant_id') } },
+          options
+        );
+        expect(res.status).toBe(400);
+        expect(res.body).toContain('InvalidParameterValue');
+        expect(res.body).toContain('tenant_id');
+        expect(featureFetchesWithFilter()).toEqual([]);
+      }
+    });
+
+    it('rejects a POST filter on an unadvertised property', async () => {
+      const res = await handleWfs110(
+        {
+          method: 'POST',
+          query: {},
+          body: {
+            'wfs:getfeature': {
+              $: { service: 'WFS', version: '1.1.0' },
+              'wfs:query': [
+                {
+                  $: { typeName: 'ns:trees' },
+                  'ogc:filter': [
+                    { 'ogc:propertyisequalto': [{ 'ogc:propertyname': ['secret_flag'], 'ogc:literal': ['1'] }] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        options
+      );
+      expect(res.status).toBe(400);
+      expect(res.body).toContain('secret_flag');
+      expect(featureFetchesWithFilter()).toEqual([]);
+    });
+
+    it('rejects an unadvertised property hidden inside a logical operator', async () => {
+      const filter =
+        '<ogc:Filter xmlns:ogc="http://www.opengis.net/ogc"><ogc:Or>' +
+        '<ogc:PropertyIsEqualTo><ogc:PropertyName>name</ogc:PropertyName><ogc:Literal>Oak</ogc:Literal></ogc:PropertyIsEqualTo>' +
+        '<ogc:PropertyIsEqualTo><ogc:PropertyName>owner</ogc:PropertyName><ogc:Literal>x</ogc:Literal></ogc:PropertyIsEqualTo>' +
+        '</ogc:Or></ogc:Filter>';
+      const res = await handleWfs200(
+        { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAMES: 'ns:trees', FILTER: filter } },
+        options
+      );
+      expect(res.status).toBe(400);
+      expect(res.body).toContain('owner');
+    });
+
+    it('accepts advertised properties, namespace-prefixed names and the geometry property', async () => {
+      for (const prop of ['name', 'ns:valid_ncname', 'geo']) {
+        const res = await handleWfs200(
+          { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAMES: 'ns:trees', FILTER: filterOn(prop) } },
+          options
+        );
+        expect(res.status).toBe(200);
+      }
+    });
+
+    it('falls back to the sampled properties when the provider has no getPropertiesSchema', async () => {
+      const schemaless = Object.assign(Object.create(Object.getPrototypeOf(provider)), provider, {
+        getPropertiesSchema: undefined,
+      });
+      const schemalessOptions: WfsOptions = { ...options, provider: schemaless };
+      const ok = await handleWfs110(
+        { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAME: 'ns:trees', FILTER: filterOn('valid_ncname') } },
+        schemalessOptions
+      );
+      expect(ok.status).toBe(200);
+      const rejected = await handleWfs110(
+        { method: 'GET', query: { REQUEST: 'GetFeature', TYPENAME: 'ns:trees', FILTER: filterOn('tenant_id') } },
+        schemalessOptions
+      );
+      expect(rejected.status).toBe(400);
     });
   });
 });

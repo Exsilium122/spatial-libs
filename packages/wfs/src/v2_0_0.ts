@@ -2,6 +2,7 @@ import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys, FilterValidationError } from './filterParser.js';
+import { resolvePropertiesSchema, findUnadvertisedFilterProperty, assertFilterPropertiesAdvertised } from './queryGuard.js';
 
 const XML_NCNAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_.-]*$/;
 
@@ -417,26 +418,7 @@ export async function handleWfs200(
         const gmlGeomType = geomType === 'LineString' ? 'gml:CurvePropertyType' : 'gml:PointPropertyType';
 
         // Dynamic schema resolution
-        let propertiesSchema: Record<string, string> = {};
-        if (typeof provider.getPropertiesSchema === 'function') {
-          propertiesSchema = await provider.getPropertiesSchema(req.user, cleanType);
-        } else {
-          // Fallback: fetch a sample feature to infer properties dynamically
-          const sampleFeatures = await provider.getFeatures(req.user, cleanType, [], { limit: 1 });
-          if (sampleFeatures.length > 0 && sampleFeatures[0].properties) {
-            for (const key of Object.keys(sampleFeatures[0].properties)) {
-              const val = sampleFeatures[0].properties[key];
-              propertiesSchema[key] = typeof val === 'number' ? 'double' : (typeof val === 'boolean' ? 'boolean' : 'string');
-            }
-          } else {
-            // Default fallback
-            propertiesSchema = {
-              name: 'string',
-              note: 'string',
-              url: 'string',
-            };
-          }
-        }
+        const propertiesSchema = await resolvePropertiesSchema(provider, req.user, cleanType);
 
         const elements: any[] = [
           {
@@ -666,6 +648,7 @@ export async function handleWfs200(
       if (!featureType && fids.length > 0) {
         const supported = await provider.getSupportedTypes(req.user);
         for (const t of supported) {
+          if (await findUnadvertisedFilterProperty(provider, req.user, t, filterQuery) !== undefined) continue;
           const check = await provider.getFeatures(req.user, t, fids, filterQuery);
           if (check.length > 0) {
             featureType = t;
@@ -718,8 +701,7 @@ export async function handleWfs200(
         }
       }
 
-      const bbox = await provider.getBoundingBox(req.user, cleanType);
-      const features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+      await assertFilterPropertiesAdvertised(provider, req.user, cleanType, filterQuery);
 
       const resultType = (query.RESULTTYPE || 'results').toLowerCase();
       let startIndex = 0;
@@ -757,7 +739,15 @@ export async function handleWfs200(
         count = Math.min(defaultLimit, maxLimit);
       }
 
-      const totalMatched = features.length;
+      // Ask the provider for one feature past the page so a full page can report numberMatched="unknown";
+      // hits needs the full match count, so it is not limited.
+      const fetchLimit = resultType === 'hits' ? undefined : startIndex + count + 1;
+      const bbox = await provider.getBoundingBox(req.user, cleanType);
+      const features = fetchLimit !== undefined
+        ? await provider.getFeatures(req.user, cleanType, fids, filterQuery, { limit: fetchLimit })
+        : await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+
+      const totalMatched: number | 'unknown' = features.length === fetchLimit ? 'unknown' : features.length;
       let returnedFeatures = features.slice(startIndex);
       if (count !== undefined) {
         returnedFeatures = returnedFeatures.slice(0, count);

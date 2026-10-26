@@ -23,6 +23,12 @@ export interface GeoJSONFeature {
   properties: Record<string, any>;
 }
 
+export interface FeatureQueryOptions {
+  /** Most features the router will use from this call (MAXFEATURES/COUNT after `maxCount` clamping,
+   *  plus STARTINDEX). Providers SHOULD stop reading after this many; the router still truncates. */
+  limit?: number;
+}
+
 export interface SpatialDataProvider {
   getSupportedTypes(context: any): Promise<string[]>;
   getBoundingBox(context: any, featureType: string): Promise<BoundingBox>;
@@ -30,7 +36,8 @@ export interface SpatialDataProvider {
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    queryOptions?: FeatureQueryOptions
   ): Promise<GeoJSONFeature[]>;
   getGeometryType?(context: any, featureType: string): Promise<'LineString' | 'Point'>;
   getPropertiesSchema?(

@@ -63,12 +63,14 @@ export interface SpatialDataProvider {
   /** Returns coordinate boundaries envelope for a feature type. */
   getBoundingBox(context: any, featureType: string): Promise<BoundingBox>;
 
-  /** Fetches the spatial features. */
+  /** Fetches the spatial features. WFS only passes filters on advertised properties (see getPropertiesSchema)
+   *  and, as `queryOptions.limit`, the most features it will use — stop reading there when you can. */
   getFeatures(
     context: any,
     featureType: string,
     fids?: string[],
-    filterQuery?: any
+    filterQuery?: any,
+    queryOptions?: { limit?: number }
   ): Promise<GeoJSONFeature[]>;
 
   /** Optional: Determines whether geometry is LineString or Point. Defaults to Point. */

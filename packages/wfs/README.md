@@ -77,8 +77,10 @@ const mySpatialProvider: SpatialDataProvider = {
     return { minLon: 10.0, minLat: 50.0, maxLon: 12.0, maxLat: 52.0 };
   },
 
-  async getFeatures(context, featureType, fids, filterQuery) {
-    // Implement spatial queries or ID lookups here
+  async getFeatures(context, featureType, fids, filterQuery, queryOptions) {
+    // Implement spatial queries or ID lookups here. filterQuery only selects on advertised
+    // properties (getPropertiesSchema, else a sampled feature's keys) and the `geo` geometry;
+    // queryOptions?.limit is the most features the router will use, so stop reading there.
     return [
       {
         id: '1',

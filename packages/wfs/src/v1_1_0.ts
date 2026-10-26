@@ -2,6 +2,7 @@ import { buildXml } from './xmlHelper.js';
 import { GenericRequest, GenericResponse, WfsOptions } from './types.js';
 import { buildExceptionResponse, WfsClientError, INTERNAL_ERROR_MESSAGE } from './exception.js';
 import { parseFilterString, parseFilterObj, normalizeKeys, FilterValidationError } from './filterParser.js';
+import { resolvePropertiesSchema, findUnadvertisedFilterProperty, assertFilterPropertiesAdvertised, resolveFeatureCap } from './queryGuard.js';
 
 const XML_NCNAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_.-]*$/;
 
@@ -207,24 +208,7 @@ export async function handleWfs110(
 
           const gmlGeomType = geomType === 'LineString' ? 'gml:LineStringPropertyType' : 'gml:PointPropertyType';
 
-          let propertiesSchema: Record<string, string> = {};
-          if (typeof provider.getPropertiesSchema === 'function') {
-            propertiesSchema = await provider.getPropertiesSchema(req.user, cleanType);
-          } else {
-            const sampleFeatures = await provider.getFeatures(req.user, cleanType, [], { limit: 1 });
-            if (sampleFeatures.length > 0 && sampleFeatures[0].properties) {
-              for (const key of Object.keys(sampleFeatures[0].properties)) {
-                const val = sampleFeatures[0].properties[key];
-                propertiesSchema[key] = typeof val === 'number' ? 'double' : (typeof val === 'boolean' ? 'boolean' : 'string');
-              }
-            } else {
-              propertiesSchema = {
-                name: 'string',
-                note: 'string',
-                url: 'string',
-              };
-            }
-          }
+          const propertiesSchema = await resolvePropertiesSchema(provider, req.user, cleanType);
 
           const elements: any[] = [
             {
@@ -382,6 +366,7 @@ export async function handleWfs110(
       if (!featureType && fids.length > 0) {
         const supported = await provider.getSupportedTypes(req.user);
         for (const t of supported) {
+          if (await findUnadvertisedFilterProperty(provider, req.user, t, filterQuery) !== undefined) continue;
           const check = await provider.getFeatures(req.user, t, fids, filterQuery);
           if (check.length > 0) {
             featureType = t;
@@ -424,13 +409,24 @@ export async function handleWfs110(
         if (!supported.includes(cleanType)) {
           return buildExceptionResponse('InvalidParameterValue', query.TYPENAMES ? 'typeNames' : 'typeName', `Feature type '${featureType}' is not advertised by this service.`, '1.1.0', 400);
         }
+        await assertFilterPropertiesAdvertised(provider, req.user, cleanType, filterQuery);
+
+        // MaxFeatures support & defaultCount / maxCount capping
+        const maxFeaturesParam = query.MAXFEATURES || query.maxFeatures || query.maxfeatures || (req.body ? (req.body['wfs:getfeature'] || req.body.getfeature)?.$?.maxFeatures : undefined);
+        const featureCap = resolveFeatureCap(maxFeaturesParam, options);
+        const resultType = (query.RESULTTYPE || query.resultType || 'results').toLowerCase();
+        const sortByParam = query.SORTBY || query.sortBy || query.sortby;
+
         const bbox = await provider.getBoundingBox(req.user, cleanType);
-        let features = await provider.getFeatures(req.user, cleanType, fids, filterQuery);
+        // Sorting happens here, after the fetch, and hits needs the full count: only an unsorted results
+        // request can let the provider stop at the cap.
+        let features = resultType !== 'hits' && !sortByParam
+          ? await provider.getFeatures(req.user, cleanType, fids, filterQuery, { limit: featureCap })
+          : await provider.getFeatures(req.user, cleanType, fids, filterQuery);
 
         const totalMatched = features.length;
 
         // SortBy support
-        const sortByParam = query.SORTBY || query.sortBy || query.sortby;
         if (sortByParam) {
           const parts = String(sortByParam).trim().split(/\s+/);
           const sortProp = parts[0].replace(/^[^:]+:/, '');
@@ -446,22 +442,7 @@ export async function handleWfs110(
           });
         }
 
-        // MaxFeatures support & defaultCount / maxCount capping
-        const maxLimit = options.maxCount ?? 1000;
-        const defaultLimit = options.defaultCount ?? maxLimit;
-        const maxFeaturesParam = query.MAXFEATURES || query.maxFeatures || query.maxfeatures || (req.body ? (req.body['wfs:getfeature'] || req.body.getfeature)?.$?.maxFeatures : undefined);
-        if (maxFeaturesParam !== undefined) {
-          const maxNum = parseInt(String(maxFeaturesParam), 10);
-          if (!isNaN(maxNum) && maxNum >= 0) {
-            features = features.slice(0, Math.min(maxNum, maxLimit));
-          } else {
-            features = features.slice(0, Math.min(defaultLimit, maxLimit));
-          }
-        } else {
-          features = features.slice(0, Math.min(defaultLimit, maxLimit));
-        }
-
-        const resultType = (query.RESULTTYPE || query.resultType || 'results').toLowerCase();
+        features = features.slice(0, featureCap);
 
         let displayBbox = { ...bbox };
         if (doReproject && options.crsTransformer) {
