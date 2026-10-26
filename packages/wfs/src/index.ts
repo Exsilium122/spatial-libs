@@ -102,6 +102,27 @@ export async function dispatchWfsRequest(
   let version = rawVersion ? String(rawVersion) : '';
 
   try {
+    const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
+    if (method === 'POST') {
+      let bodyLength = 0;
+      if (typeof req.body === 'string') {
+        bodyLength = Buffer.byteLength(req.body);
+      } else if (Buffer.isBuffer(req.body)) {
+        bodyLength = req.body.length;
+      } else if (typeof (req as any).rawBody === 'string') {
+        bodyLength = Buffer.byteLength((req as any).rawBody);
+      }
+      if (bodyLength > maxBodyBytes) {
+        return buildExceptionResponse(
+          'OperationProcessingFailed',
+          'request',
+          `Request body exceeds maximum allowed size of ${maxBodyBytes} bytes`,
+          version || '1.1.0',
+          413
+        );
+      }
+    }
+
     if (method === 'GET' && request) {
       if (rawService !== undefined && String(rawService).toUpperCase() !== 'WFS') {
         return buildExceptionResponse('InvalidParameterValue', 'service', `SERVICE parameter must be "WFS", received "${rawService}"`, '2.0.0');
@@ -260,6 +281,58 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
   }
 
   const router = express.Router();
+  const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
+
+  // Enforce maximum POST body size
+  router.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.method === 'POST') {
+      const contentLengthHeader = req.headers['content-length'];
+      if (contentLengthHeader) {
+        const contentLength = parseInt(contentLengthHeader, 10);
+        if (!isNaN(contentLength) && contentLength > maxBodyBytes) {
+          const exception = buildExceptionResponse(
+            'OperationProcessingFailed',
+            'request',
+            `Request body exceeds maximum allowed size of ${maxBodyBytes} bytes`,
+            '1.1.0',
+            413
+          );
+          res.status(413);
+          for (const [k, v] of Object.entries(exception.headers)) {
+            res.setHeader(k, v);
+          }
+          return res.send(exception.body);
+        }
+      }
+
+      let receivedBytes = 0;
+      let exceeded = false;
+      const onData = (chunk: any) => {
+        receivedBytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+        if (receivedBytes > maxBodyBytes && !exceeded) {
+          exceeded = true;
+          req.removeListener('data', onData);
+          req.destroy();
+          if (!res.headersSent) {
+            const exception = buildExceptionResponse(
+              'OperationProcessingFailed',
+              'request',
+              `Request body exceeds maximum allowed size of ${maxBodyBytes} bytes`,
+              '1.1.0',
+              413
+            );
+            res.status(413);
+            for (const [k, v] of Object.entries(exception.headers)) {
+              res.setHeader(k, v);
+            }
+            res.send(exception.body);
+          }
+        }
+      };
+      req.on('data', onData);
+    }
+    next();
+  });
 
   // 2. Register XML body parser middleware at root so we can parse POST bodies
   // Using cast since express-xml-bodyparser has older typing shapes
@@ -287,6 +360,9 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
         user: (req as any).user || {},
         baseUrl: resolveBaseUrl(req, options)
       };
+      if ((req as any).rawBody !== undefined) {
+        (genericReq as any).rawBody = (req as any).rawBody;
+      }
 
       const result = await dispatchWfsRequest(genericReq, options);
 
@@ -319,6 +395,20 @@ export default function createWfsRouter(options: WfsOptions): express.Router {
   router.use((err: any, req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) {
       return next(err);
+    }
+    if (err.status === 413 || err.statusCode === 413) {
+      const exception = buildExceptionResponse(
+        'OperationProcessingFailed',
+        'request',
+        err.message || `Request body exceeds maximum allowed size of ${maxBodyBytes} bytes`,
+        '1.1.0',
+        413
+      );
+      res.status(413);
+      for (const [k, v] of Object.entries(exception.headers)) {
+        res.setHeader(k, v);
+      }
+      return res.send(exception.body);
     }
     options.logger?.warn('[Spatial WFS] Rejected unparseable request body:', err?.message);
     const exception = buildExceptionResponse('OperationParsingFailed', 'request', 'Request body is not well-formed XML', '1.1.0');

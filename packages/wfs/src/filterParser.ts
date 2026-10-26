@@ -7,6 +7,8 @@ export class FilterValidationError extends Error {
   }
 }
 
+export const MAX_FILTER_DEPTH = 32;
+
 /**
  * Validates a property name against NoSQL operator injection and prototype pollution.
  */
@@ -124,13 +126,16 @@ function likePatternToRegExp(pattern: string, options: LikeOptions = {}): RegExp
 /**
  * Unwraps arrays recursively to support both explicitArray: true and simple object outputs.
  */
-export function unwrap(val: any): any {
+export function unwrap(val: any, depth: number = 0): any {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new FilterValidationError(`XML filter tree exceeds maximum recursion depth of ${MAX_FILTER_DEPTH}`);
+  }
   if (Array.isArray(val)) {
-    return unwrap(val[0]);
+    return unwrap(val[0], depth + 1);
   }
   if (val && typeof val === 'object') {
-    if ('#text' in val) return unwrap(val['#text']);
-    if ('_' in val) return unwrap(val['_']);
+    if ('#text' in val) return unwrap(val['#text'], depth + 1);
+    if ('_' in val) return unwrap(val['_'], depth + 1);
   }
   return val;
 }
@@ -158,9 +163,12 @@ const CANONICAL_FILTER_KEYS = new Map(
  * canonical casing of known filter elements. The xml2js attribute bag (`$`) is kept as a
  * flat, prototype-free copy so FeatureId/ResourceId `fid`/`rid` attributes survive.
  */
-export function normalizeKeys(obj: any): any {
+export function normalizeKeys(obj: any, depth: number = 0): any {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new FilterValidationError(`XML filter tree exceeds maximum recursion depth of ${MAX_FILTER_DEPTH}`);
+  }
   if (!obj || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(normalizeKeys);
+  if (Array.isArray(obj)) return obj.map((item) => normalizeKeys(item, depth + 1));
   const res: Record<string, any> = Object.create(null);
   const attrs: Record<string, any> = Object.create(null);
 
@@ -186,7 +194,7 @@ export function normalizeKeys(obj: any): any {
       continue;
     }
     const cleanKey = CANONICAL_FILTER_KEYS.get(localKey.toLowerCase()) ?? localKey;
-    res[cleanKey] = normalizeKeys(obj[key]);
+    res[cleanKey] = normalizeKeys(obj[key], depth + 1);
   }
 
   if (Object.keys(attrs).length > 0) {
@@ -204,6 +212,9 @@ export async function parseFilterString(xmlString: string): Promise<any> {
     const normalized = normalizeKeys(obj);
     return normalized?.Filter || null;
   } catch (err) {
+    if (err instanceof FilterValidationError || (err as any)?.name === 'FilterValidationError') {
+      throw err;
+    }
     return null;
   }
 }
@@ -211,12 +222,15 @@ export async function parseFilterString(xmlString: string): Promise<any> {
 /**
  * Extracts logical operator children (And/Or/Not) recursively.
  */
-function getLogicalChildren(node: any): any[] {
+function getLogicalChildren(node: any, depth: number = 0): any[] {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new FilterValidationError(`XML filter tree exceeds maximum recursion depth of ${MAX_FILTER_DEPTH}`);
+  }
   const children: any[] = [];
   if (!node || typeof node !== 'object') return children;
   
   if (Array.isArray(node)) {
-    return node.map(parseFilterObj).filter(q => Object.keys(q).length > 0);
+    return node.map((item) => parseFilterObj(item, depth + 1)).filter(q => Object.keys(q).length > 0);
   }
 
   for (const key of Object.keys(node)) {
@@ -224,11 +238,11 @@ function getLogicalChildren(node: any): any[] {
     const val = node[key];
     if (Array.isArray(val)) {
       val.forEach(item => {
-        const sub = parseFilterObj({ [key]: item });
+        const sub = parseFilterObj({ [key]: item }, depth + 1);
         if (Object.keys(sub).length > 0) children.push(sub);
       });
     } else if (typeof val === 'object' && val !== null) {
-      const sub = parseFilterObj({ [key]: val });
+      const sub = parseFilterObj({ [key]: val }, depth + 1);
       if (Object.keys(sub).length > 0) children.push(sub);
     }
   }
@@ -258,7 +272,10 @@ function getPropertyName(node: any): string | undefined {
 /**
  * Recursively parses a normalized OGC filter node into a MongoDB query selector.
  */
-export function parseFilterObj(filterNode: any): any {
+export function parseFilterObj(filterNode: any, depth: number = 0): any {
+  if (depth > MAX_FILTER_DEPTH) {
+    throw new FilterValidationError(`XML filter tree exceeds maximum recursion depth of ${MAX_FILTER_DEPTH}`);
+  }
   if (!filterNode) return {};
 
   const query: Record<string, any> = {};
@@ -420,19 +437,19 @@ export function parseFilterObj(filterNode: any): any {
 
   // 3. Logical Operators
   if (filterNode.And) {
-    const children = getLogicalChildren(unwrap(filterNode.And));
+    const children = getLogicalChildren(unwrap(filterNode.And, depth + 1), depth + 1);
     if (children.length > 0) {
       query.$and = children;
     }
   }
   if (filterNode.Or) {
-    const children = getLogicalChildren(unwrap(filterNode.Or));
+    const children = getLogicalChildren(unwrap(filterNode.Or, depth + 1), depth + 1);
     if (children.length > 0) {
       query.$or = children;
     }
   }
   if (filterNode.Not) {
-    const children = getLogicalChildren(unwrap(filterNode.Not));
+    const children = getLogicalChildren(unwrap(filterNode.Not, depth + 1), depth + 1);
     if (children.length > 0) {
       query.$nor = children;
     }

@@ -57,6 +57,12 @@ export interface WfsOptions {
   crsTransformer?: CoordinateTransformer; // Dynamic injection
   appUrl?: string; // Kept as optional fallback/backward compatibility if needed, but not enforced
   enabledVersions?: ('1.0.0' | '1.1.0' | '2.0.0' | '2.0.2')[];
+  /** Maximum allowed size in bytes for POST request bodies (defaults to 1MB). */
+  maxBodyBytes?: number;
+  /** Default count/maxFeatures cap when omitted in GetFeature query (defaults to 1000). */
+  defaultCount?: number;
+  /** Upper bound limit for count/maxFeatures in GetFeature query (defaults to 1000). */
+  maxCount?: number;
   xmlOptions?: {
     schemaLocations?: Record<string, string>;
     namespaces?: Record<string, string>;
