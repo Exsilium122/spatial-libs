@@ -1,6 +1,6 @@
 {
   "name": "@spatial-api/ogc",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Modular and lightweight OGC API Features (WFS 3.0) protocol engine with optional out-of-the-box Express integration",
   "keywords": [
     "ogc",

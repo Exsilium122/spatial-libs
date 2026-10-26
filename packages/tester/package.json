@@ -1,6 +1,6 @@
 {
   "name": "@spatial-api/tester",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "Interactive and automated smoke and concurrent stress testing CLI for WFS and OGC API Features",
   "keywords": [
     "wfs",

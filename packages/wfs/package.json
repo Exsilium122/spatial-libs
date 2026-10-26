@@ -1,6 +1,6 @@
 {
   "name": "@spatial-api/wfs",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Modular and lightweight WFS (Web Feature Service) protocol engine with optional out-of-the-box Express integration",
   "keywords": [
     "wfs",
