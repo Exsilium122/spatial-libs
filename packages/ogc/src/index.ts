@@ -244,7 +244,7 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
     if (trustedHostsSet !== null) {
       return trustedHostsSet.has(host.toLowerCase());
     }
-    return true;
+    return false;
   };
 
   // Helper to get baseUrl dynamically from request if baseUrl was relative, or use configured baseUrl
@@ -261,137 +261,152 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
   // 1. Landing Page (GET /)
   router.get('/', (req: Request, res: Response) => {
-    const activeBase = getRequestBaseUrl(req);
-    res.json({
-      title: 'OGC API - Features read-only service',
-      description: 'OGC API - Features compliant spatial feature server',
-      links: [
-        {
-          rel: 'self',
-          type: 'application/json',
-          title: 'This document (Landing Page)',
-          href: `${activeBase}`
-        },
-        {
-          rel: 'service-desc',
-          type: 'application/vnd.oai.openapi+json;version=3.0',
-          title: 'API definition',
-          href: `${activeBase}/api`
-        },
-        {
-          rel: 'service-doc',
-          type: 'text/html',
-          title: 'API documentation',
-          href: `${activeBase}/api`
-        },
-        {
-          rel: 'conformance',
-          type: 'application/json',
-          title: 'OGC API Conformance Declaration',
-          href: `${activeBase}/conformance`
-        },
-        {
-          rel: 'data',
-          type: 'application/json',
-          title: 'Feature Collections',
-          href: `${activeBase}/collections`
-        }
-      ]
-    });
+    try {
+      const activeBase = getRequestBaseUrl(req);
+      res.json({
+        title: 'OGC API - Features read-only service',
+        description: 'OGC API - Features compliant spatial feature server',
+        links: [
+          {
+            rel: 'self',
+            type: 'application/json',
+            title: 'This document (Landing Page)',
+            href: `${activeBase}`
+          },
+          {
+            rel: 'service-desc',
+            type: 'application/vnd.oai.openapi+json;version=3.0',
+            title: 'API definition',
+            href: `${activeBase}/api`
+          },
+          {
+            rel: 'service-doc',
+            type: 'text/html',
+            title: 'API documentation',
+            href: `${activeBase}/api`
+          },
+          {
+            rel: 'conformance',
+            type: 'application/json',
+            title: 'OGC API Conformance Declaration',
+            href: `${activeBase}/conformance`
+          },
+          {
+            rel: 'data',
+            type: 'application/json',
+            title: 'Feature Collections',
+            href: `${activeBase}/collections`
+          }
+        ]
+      });
+    } catch (err) {
+      if (logger) logger.error('OGC Landing Page error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // 1.5. API Definition (GET /api)
   router.get('/api', (req: Request, res: Response) => {
-    if (req.headers.accept?.includes('text/html') && !req.headers.accept?.includes('application/vnd.oai.openapi+json')) {
-      return res.type('text/html').send('<!DOCTYPE html><html><head><title>OGC API - Features Service</title></head><body><h1>OGC API - Features Service</h1></body></html>');
-    }
-    res.type('application/vnd.oai.openapi+json;version=3.0').json({
-      openapi: '3.0.0',
-      info: {
-        title: 'OGC API - Features Service',
-        version: '1.0.0'
-      },
-      paths: {
-        '/': {
-          get: {
-            responses: {
-              200: {
-                description: 'Landing page'
-              }
-            }
-          }
+    try {
+      if (req.headers.accept?.includes('text/html') && !req.headers.accept?.includes('application/vnd.oai.openapi+json')) {
+        return res.type('text/html').send('<!DOCTYPE html><html><head><title>OGC API - Features Service</title></head><body><h1>OGC API - Features Service</h1></body></html>');
+      }
+      res.type('application/vnd.oai.openapi+json;version=3.0').json({
+        openapi: '3.0.0',
+        info: {
+          title: 'OGC API - Features Service',
+          version: '1.0.0'
         },
-        '/conformance': {
-          get: {
-            responses: {
-              200: {
-                description: 'Conformance classes'
-              }
-            }
-          }
-        },
-        '/collections': {
-          get: {
-            responses: {
-              200: {
-                description: 'Metadata for collections'
-              }
-            }
-          }
-        },
-        '/collections/{collectionId}': {
-          get: {
-            responses: {
-              200: {
-                description: 'Metadata for a collection'
-              }
-            }
-          }
-        },
-        '/collections/{collectionId}/items': {
-          get: {
-            parameters: [
-              {
-                name: 'extra',
-                in: 'query',
-                style: 'form',
-                schema: {
-                  type: 'object',
-                  additionalProperties: true
+        paths: {
+          '/': {
+            get: {
+              responses: {
+                200: {
+                  description: 'Landing page'
                 }
               }
-            ],
-            responses: {
-              200: {
-                description: 'Features in a collection'
+            }
+          },
+          '/conformance': {
+            get: {
+              responses: {
+                200: {
+                  description: 'Conformance classes'
+                }
               }
             }
-          }
-        },
-        '/collections/{collectionId}/items/{featureId}': {
-          get: {
-            responses: {
-              200: {
-                description: 'A single feature'
+          },
+          '/collections': {
+            get: {
+              responses: {
+                200: {
+                  description: 'Metadata for collections'
+                }
+              }
+            }
+          },
+          '/collections/{collectionId}': {
+            get: {
+              responses: {
+                200: {
+                  description: 'Metadata for a collection'
+                }
+              }
+            }
+          },
+          '/collections/{collectionId}/items': {
+            get: {
+              parameters: [
+                {
+                  name: 'extra',
+                  in: 'query',
+                  style: 'form',
+                  schema: {
+                    type: 'object',
+                    additionalProperties: true
+                  }
+                }
+              ],
+              responses: {
+                200: {
+                  description: 'Features in a collection'
+                }
+              }
+            }
+          },
+          '/collections/{collectionId}/items/{featureId}': {
+            get: {
+              responses: {
+                200: {
+                  description: 'A single feature'
+                }
               }
             }
           }
         }
-      }
-    });
+      });
+    } catch (err) {
+      if (logger) logger.error('OGC API Definition error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // 2. Conformance Page (GET /conformance)
   router.get('/conformance', (req: Request, res: Response) => {
-    const conformsTo = [
-      'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core',
-      'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson',
-      'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30'
-    ];
-    if (options.crsTransformer) {
-      conformsTo.push('http://www.opengis.net/spec/ogcapi-features-2/1.0/conf/crs');
+    try {
+      const conformsTo = [
+        'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core',
+        'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson',
+        'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30'
+      ];
+      if (options.crsTransformer) {
+        conformsTo.push('http://www.opengis.net/spec/ogcapi-features-2/1.0/conf/crs');
+      }
+      res.json({ conformsTo });
+    } catch (err) {
+      if (logger) logger.error('OGC Conformance error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
     }
-    res.json({ conformsTo });
   });
 
   // 3. Collections Page (GET /collections)
@@ -477,7 +492,7 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       });
     } catch (err) {
       if (logger) logger.error('OGC Collections error:', err);
-      next(err);
+      return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -568,7 +583,7 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       });
     } catch (err) {
       if (logger) logger.error(`OGC Collection Detail error for ${collectionId}:`, err);
-      next(err);
+      return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -590,8 +605,11 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         if (Array.isArray(req.query.crs)) {
           return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
         }
+        if (typeof req.query.crs !== 'string') {
+          return res.status(400).json({ error: 'Invalid "crs" parameter: expected a single string value.' });
+        }
         if (options.crsTransformer) {
-          const reqCrs = String(req.query.crs);
+          const reqCrs = req.query.crs;
           if (options.crsTransformer.isSupported(reqCrs)) {
             targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
             doReproject = true;
@@ -606,7 +624,10 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         if (Array.isArray(req.query['bbox-crs'])) {
           return res.status(400).json({ error: 'Malformed bbox-crs parameter: duplicate parameters are not allowed.' });
         }
-        const reqBboxCrs = String(req.query['bbox-crs']);
+        if (typeof req.query['bbox-crs'] !== 'string') {
+          return res.status(400).json({ error: 'Invalid "bbox-crs" parameter: expected a single string value.' });
+        }
+        const reqBboxCrs = req.query['bbox-crs'];
         if (options.crsTransformer) {
           if (options.crsTransformer.isSupported(reqBboxCrs)) {
             bboxSrs = options.crsTransformer.normalizeSrs(reqBboxCrs);
@@ -626,7 +647,10 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
 
       // Parse pagination limits
       if (req.query.limit !== undefined) {
-        const rawLimit = String(req.query.limit).trim();
+        if (typeof req.query.limit !== 'string') {
+          return res.status(400).json({ error: 'Invalid "limit" parameter: expected a single string value.' });
+        }
+        const rawLimit = req.query.limit.trim();
         if (!/^\d+$/.test(rawLimit) || parseInt(rawLimit, 10) < 1) {
           return res.status(400).json({ error: `Invalid limit parameter: "${req.query.limit}" must be a positive integer.` });
         }
@@ -635,12 +659,33 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       if (isNaN(limit) || limit < 1) limit = defaultLimit;
       if (limit > maxLimit) limit = maxLimit;
 
+      if (req.query.offset !== undefined) {
+        if (typeof req.query.offset !== 'string') {
+          return res.status(400).json({ error: 'Invalid "offset" parameter: expected a single string value.' });
+        }
+        const rawOffset = req.query.offset.trim();
+        if (!/^\d+$/.test(rawOffset) || parseInt(rawOffset, 10) < 0) {
+          return res.status(400).json({ error: `Invalid offset parameter: "${req.query.offset}" must be a non-negative integer.` });
+        }
+      }
+      if (req.query.startindex !== undefined) {
+        if (typeof req.query.startindex !== 'string') {
+          return res.status(400).json({ error: 'Invalid "startindex" parameter: expected a single string value.' });
+        }
+        const rawStartIndex = req.query.startindex.trim();
+        if (!/^\d+$/.test(rawStartIndex) || parseInt(rawStartIndex, 10) < 0) {
+          return res.status(400).json({ error: `Invalid startindex parameter: "${req.query.startindex}" must be a non-negative integer.` });
+        }
+      }
       let offset = parseInt(String(req.query.offset || req.query.startindex || 0), 10);
       if (isNaN(offset) || offset < 0) offset = 0;
 
       // Validate datetime parameter
       if (req.query.datetime !== undefined) {
-        if (typeof req.query.datetime !== 'string' || !validateDatetime(req.query.datetime)) {
+        if (typeof req.query.datetime !== 'string') {
+          return res.status(400).json({ error: 'Invalid "datetime" parameter: expected a single string value.' });
+        }
+        if (!validateDatetime(req.query.datetime)) {
           return res.status(400).json({ error: `Invalid datetime parameter: "${req.query.datetime}" is not a valid RFC 3339 datetime or interval.` });
         }
       }
@@ -651,7 +696,10 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         if (Array.isArray(req.query.bbox)) {
           return res.status(400).json({ error: 'Malformed bbox parameter: duplicate parameters are not allowed.' });
         }
-        const rawBbox = String(req.query.bbox).trim();
+        if (typeof req.query.bbox !== 'string') {
+          return res.status(400).json({ error: 'Invalid "bbox" parameter: expected a single string value.' });
+        }
+        const rawBbox = req.query.bbox.trim();
         const rawParts = rawBbox.split(',');
         if (rawParts.length !== 4 && rawParts.length !== 6) {
           return res.status(400).json({ error: `Malformed bbox parameter: expected 4 or 6 comma-separated numbers, got ${rawParts.length}.` });
@@ -892,7 +940,7 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       res.type('application/geo+json').json(fcResponse);
     } catch (err) {
       if (logger) logger.error(`OGC Items error for ${collectionId}:`, err);
-      next(err);
+      return res.status(500).json({ error: 'Internal server error' });
     }
   });
 
@@ -911,8 +959,11 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
         if (Array.isArray(req.query.crs)) {
           return res.status(400).json({ error: 'Malformed crs parameter: duplicate parameters are not allowed.' });
         }
+        if (typeof req.query.crs !== 'string') {
+          return res.status(400).json({ error: 'Invalid "crs" parameter: expected a single string value.' });
+        }
         if (options.crsTransformer) {
-          const reqCrs = String(req.query.crs);
+          const reqCrs = req.query.crs;
           if (options.crsTransformer.isSupported(reqCrs)) {
             targetSrs = options.crsTransformer.normalizeSrs(reqCrs);
             doReproject = true;
@@ -979,7 +1030,14 @@ export default function createOgcRouter(options: OgcOptions): express.Router {
       res.type('application/geo+json').json(responseFeature);
     } catch (err) {
       if (logger) logger.error(`OGC Single Feature error for ${collectionId}/${featureId}:`, err);
-      next(err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  router.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    if (logger) logger.error('Unhandled OGC error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
